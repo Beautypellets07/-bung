@@ -420,8 +420,14 @@ async function osrmDistKm(a,b){
 function calcDeliveredPrice(distKm, basePrice){
   const preisProKm = distKm < 250 ? 2.15 : 1.85;
   const berechnung = (distKm/24) * preisProKm;
-  const total = (berechnung + (basePrice||0)) * 1.05;
-  return { total, preisProKm };
+
+  // ✅ Marge: Pellets 5%, Streusalz 20%
+  const margeFaktor = (currentUnit === "streusalz") ? 1.20 : 1.05;
+
+  const total = (berechnung + (basePrice||0)) * margeFaktor;
+  return { total, preisProKm, margeFaktor };
+}
+
 }
 async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
   const osrm=`https://router.project-osrm.org/route/v1/driving/${aCoord.lon},${aCoord.lat};${bCoord.lon},${bCoord.lat}?overview=full&geometries=geojson`;
