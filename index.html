@@ -122,6 +122,27 @@ const sheetUrlKunden = "https://docs.google.com/spreadsheets/d/1fK_rO1b2eI4sOvUK
 const map=L.map("map").setView([51,11],5);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{minZoom:4,maxZoom:18,attribution:"&copy; OpenStreetMap"}).addTo(map);
 
+  // ✅ DOM-Referenzen (wichtig, sonst bricht JS ab und Rechtsklick geht nicht)
+const searchInput = document.getElementById("searchInput");
+const countryDropdown = document.getElementById("countryDropdown");
+const countryDropdownBtn = document.getElementById("countryDropdownBtn");
+const countryDropdownMenu = document.getElementById("countryDropdownMenu");
+
+const chkEnPlus = document.getElementById("chkEnPlus");
+const chkDINplus = document.getElementById("chkDINplus");
+const chkSURE = document.getElementById("chkSURE");
+const chkCPP = document.getElementById("chkCPP");
+const chkOhneZert = document.getElementById("chkOhneZert");
+
+const chkGruen = document.getElementById("chkGruen");
+const chkOrange = document.getElementById("chkOrange");
+const chkRot = document.getElementById("chkRot");
+const chkGrau = document.getElementById("chkGrau");
+
+const chkKunden = document.getElementById("chkKunden");
+const chkSackKunden = document.getElementById("chkSackKunden");
+const chkSonstigeKunden = document.getElementById("chkSonstigeKunden");
+
 const geoCache=JSON.parse(localStorage.getItem("geoCachePellets_EU")||"{}");
 const saveGeo=()=>localStorage.setItem("geoCachePellets_EU",JSON.stringify(geoCache));
 const num=v=>{v=String(v??"").trim().replace(",",".");v=v.replace(/€/g,"").trim();const n=+v;return isFinite(n)?n:NaN};
