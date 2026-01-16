@@ -446,7 +446,7 @@ async function runTargetSearch(type, targetPrice){
     return {...f, d0};
   }).sort((a,b)=>a.d0-b.d0);
 
-  const LIMIT = 35;
+  const LIMIT = 5;
   const candidates = pre.slice(0, Math.min(LIMIT, pre.length));
 
   const matches = [];
