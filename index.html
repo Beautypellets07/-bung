@@ -417,16 +417,7 @@ async function osrmDistKm(a,b){
   if(data?.routes?.length) return data.routes[0].distance/1000;
   return null;
 }
-function calcDeliveredPrice(distKm, basePrice){
-  const preisProKm = distKm < 250 ? 2.15 : 1.85;
-  const berechnung = (distKm/24) * preisProKm;
 
-  // ✅ Marge: Pellets 5%, Streusalz 20%
-  const margeFaktor = (currentUnit === "streusalz") ? 1.20 : 1.05;
-
-  const total = (berechnung + (basePrice||0)) * margeFaktor;
-  return { total, preisProKm, margeFaktor };
-}
 
 }
 async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
