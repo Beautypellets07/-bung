@@ -66,7 +66,7 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 <body>
 <div id="map"></div>
 
-<!-- ✅ Unit ist jetzt UNTER Land/Länder -->
+<!-- ✅ Unit ist UNTER Land/Länder -->
 <div class="box search">
   <div>🔍 <input id="searchInput" placeholder="Firma, Kunde oder Ort suchen…"></div>
 
@@ -136,15 +136,16 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 
 <script>
 /*** ====== SHEETS ====== ***/
-// Firmen-Sheet-ID bleibt gleich – Streusalz ist ein NEUES Tabellenblatt "Streusalz"
 const sheetIdFirmen = "1fNUc0LJqBXxJdW1JRDfYxYORMuqeks_bHqp7zUq5Zmk";
 const sheetIdKunden = "1fK_rO1b2eI4sOvUKOufVgmd2lQ85KazPf5Kfm4Iia5I";
 
-// Pellets (wie bisher, gid=0)
+// Pellets: gid=0
 const sheetUrlFirmenPellets = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/export?format=csv&gid=0`;
 
-// ✅ Streusalz Tab per SHEET-NAME (kein gid nötig)
-const sheetUrlFirmenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("Streusalz")}`;
+// ✅ STREUSALZ: Tab heißt auf deinem Bild "streusalz" (klein)
+const STREUSALZ_SHEET_NAME = "streusalz";
+const sheetUrlFirmenStreusalz =
+  `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 
 const sheetUrlKunden = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/export?format=csv&gid=0`;
 
@@ -183,7 +184,7 @@ const chkSackKunden = document.getElementById("chkSackKunden");
 const chkSonstigeKunden = document.getElementById("chkSonstigeKunden");
 
 /*** ====== HELPERS / STATE ====== ***/
-let currentUnit = unitSelect.value; // pellets|streusalz
+let currentUnit = unitSelect.value;
 
 const geoCache=JSON.parse(localStorage.getItem("geoCachePellets_EU")||"{}");
 const saveGeo=()=>localStorage.setItem("geoCachePellets_EU",JSON.stringify(geoCache));
@@ -218,13 +219,10 @@ const iconBlue=tri("blue"), iconPurple=tri("purple"), iconOrange=tri("orange");
 
 /*** ====== DATA ====== ***/
 let kunden=[];
-
-// getrennte Caches pro Unit
 let werkePellets=null;
 let werkeStreusalz=null;
-
-// aktive Daten
 let werke=[];
+
 let alleMarker=[], selectedPoints=[], routeLine=null, searchMarker=null;
 let ctxEl=null, ctxCustomer=null, matchMarkers=[];
 
@@ -236,7 +234,6 @@ function resetMatchHighlights(){
   matchMarkers=[];
 }
 
-/* ===== FIX: Klicks im Menü dürfen NICHT die Map klicken ===== */
 function stopEvt(el){
   if(!el) return;
   L.DomEvent.disableClickPropagation(el);
@@ -249,9 +246,7 @@ function stopEvt(el){
   el.addEventListener("touchstart", e=>e.stopPropagation(), {passive:true});
 }
 
-/* =========================
-   PARSER
-   ========================= */
+/* ===== PARSER ===== */
 function findIndex(headers, cands){
   const hs=headers.map(h=>lc(h));
   const cs=cands.map(c=>lc(c));
@@ -266,9 +261,8 @@ function parseFirmenArray(table){
   let nameIdx = findIndex(headers, ["firma","name","werk"]); if(nameIdx<0) nameIdx = 0;
   let ortIdx  = findIndex(headers, ["ort","stadt","standort","adresse","location"]); if(ortIdx<0) ortIdx = 1;
 
-  const preisIdx = 2; // Spalte C (wie bei dir)
-
-  let sackIdx = findIndex(headers, ["sackwarenpreis","sackwarepreis","preis_sack","sackpreis","preis sack"]);
+  const preisIdx = 2; // Spalte C
+  let sackIdx = findIndex(headers, ["sackwarenpreis","sackwarenpreis ","sackwarepreis","preis_sack","sackpreis","preis sack"]);
   if(sackIdx<0) sackIdx = 3;
 
   let zertIdx = findIndex(headers, ["zertifikat","zertifikate","zert","cert"]); if(zertIdx<0) zertIdx = -1;
@@ -299,9 +293,7 @@ function parseKunden(rows){
     loseKey=(keys.find(k=>lc(k)==="lose")||"lose"),
     sackKey=(keys.find(k=>lc(k)==="sackware")||"sackware"),
     sonstKey=(keys.find(k=>lc(k)==="sonstige")||"sonstige");
-  return rows
-    .map(x=>({name:str(x[nameKey]),ort:str(x[ortKey]),lose:lc(x[loseKey]),sackware:lc(x[sackKey]),sonstige:lc(x[sonstKey])}))
-    .filter(x=>x.name&&x.ort);
+  return rows.map(x=>({name:str(x[nameKey]),ort:str(x[ortKey]),lose:lc(x[loseKey]),sackware:lc(x[sackKey]),sonstige:lc(x[sonstKey])})).filter(x=>x.name&&x.ort);
 }
 
 function normalizePreise(d){
@@ -313,18 +305,15 @@ function normalizePreise(d){
   return d.map(x=>{
     x.keinPreisWerk = !(isFinite(x._preisOrig) && x._preisOrig>0);
     x.keinPreisSack = !(isFinite(x._preisSackOrig) && x._preisSackOrig>0);
-
-    // Farben: fehlend -> Durchschnitt (nur Darstellung)
     if(x.keinPreisWerk) x.preis = avgW;
     if(x.keinPreisSack) x.preisSack = avgS;
-
     x.farbeWerk = colorForPrice(x._preisOrig, x.keinPreisWerk);
     x.farbeSack = colorForPrice(x._preisSackOrig, x.keinPreisSack);
     return x;
   });
 }
 
-/*** ====== LOADERS ====== ***/
+/* ===== LOADERS ===== */
 async function loadKundenOnce(){
   if(kunden.length) return;
   kunden = await new Promise(res=>Papa.parse(sheetUrlKunden,{
@@ -350,7 +339,7 @@ async function loadWerkeForUnit(unit){
   return data;
 }
 
-/*** ====== COUNTRY FILTER ====== ***/
+/* ===== COUNTRY ===== */
 function getSelectedCountries(){
   const s=[...document.querySelectorAll(".countryChk")].filter(c=>c.checked).map(c=>c.value);
   return (!s.length||s.includes("all"))?["all"]:s;
@@ -362,7 +351,7 @@ function updateCountryButtonLabel(){
   countryDropdownBtn.textContent=s.map(c=>names[c]||c.toUpperCase()).join(", ");
 }
 
-/*** ====== TOOLTIP ====== ***/
+/* ===== TOOLTIP ===== */
 function tooltipFirma(m){
   const useSack = sackAktiv();
   const p = (isPellets() && useSack)
@@ -375,15 +364,13 @@ function tooltipFirma(m){
   return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${z}${s}`;
 }
 
-/*** ====== BUILD MAP ====== ***/
+/* ===== BUILD MAP ===== */
 async function buildMap(){
-  // alte Marker weg
   for(const m of alleMarker){ try{ map.removeLayer(m.marker); }catch(e){} }
   alleMarker=[];
 
   const bounds=L.latLngBounds();
 
-  // Firmen
   for(const w of werke){
     const c=geoCache[w.ort]?.country_code?geoCache[w.ort]:await geocode(w.ort); if(!c) continue;
     const farbe = (isPellets() && sackAktiv()) ? w.farbeSack : w.farbeWerk;
@@ -397,7 +384,6 @@ async function buildMap(){
     bounds.extend([c.lat,c.lon]);
   }
 
-  // Kunden
   for(const k of kunden){
     const c=geoCache[k.ort]?.country_code?geoCache[k.ort]:await geocode(k.ort); if(!c) continue;
     const isSackOnly=(k.sackware==="ja")&&(k.lose!=="ja"), isSonstige=(k.sonstige==="ja");
@@ -420,7 +406,7 @@ async function buildMap(){
   updateLayers();
 }
 
-/*** ====== ROUTE / PRICE ====== ***/
+/* ===== ROUTE / PRICE ===== */
 function luftlinieKm(a,b){
   const R=6371,toRad=x=>x*Math.PI/180, dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon), la1=toRad(a.lat), la2=toRad(b.lat);
   const h=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
@@ -481,7 +467,7 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
 }
 function showRoute(a,b){ return showRouteByCoords(a.label, a.coord, b.label, b.coord); }
 
-/*** ====== CONTEXT MENU ====== ***/
+/* ===== CONTEXT MENU ===== */
 function openCustomerMenu(kunde, coord, mouseEvent){
   closeCtx();
   resetMatchHighlights();
@@ -576,25 +562,15 @@ async function runTargetSearch(type, targetPrice){
     let dist = null;
     try{ dist = await osrmDistKm({lat:c.lat,lon:c.lon},{lat:f._coord.lat,lon:f._coord.lon}); }catch(e){}
     if(!dist) dist = f.d0;
-    const {total, preisProKm} = calcDeliveredPrice(dist, f.base);
-    if(total <= targetPrice) matches.push({ f, distKm: dist, total, preisProKm });
+    const {total} = calcDeliveredPrice(dist, f.base);
+    if(total <= targetPrice) matches.push({ f, distKm: dist, total });
   }
 
   matches.sort((a,b)=>a.total-b.total);
 
   if(!matches.length){
-    resBox.innerHTML = `<div class="small">Keine Firma unter ${targetPrice.toFixed(2)} € gefunden (in den nächsten ${LIMIT} nach Nähe, nur mit echten Preisen).</div>`;
+    resBox.innerHTML = `<div class="small">Keine Firma unter ${targetPrice.toFixed(2)} € gefunden (nur mit echten Preisen).</div>`;
     return;
-  }
-
-  resetMatchHighlights();
-  for(const m of matches.slice(0,12)){
-    const mm = m.f;
-    if(mm.marker.setStyle){
-      mm._origStyle = {color:mm.marker.options.color, fillColor:mm.marker.options.fillColor, fillOpacity:mm.marker.options.fillOpacity};
-      mm.marker.setStyle({color:"#000", fillColor:"#000", fillOpacity:0.85});
-      matchMarkers.push(mm);
-    }
   }
 
   const pill = isPellets() ? (type==="sack"?"Sackware":"Lose") : "Streusalz";
@@ -602,7 +578,7 @@ async function runTargetSearch(type, targetPrice){
     ? (type==="sack" ? "Sackware-Preis" : "Werkspreis")
     : "Werkspreis";
 
-  const html = matches.slice(0,20).map((m,i)=>`
+  resBox.innerHTML = matches.slice(0,20).map((m,i)=>`
     <div class="item" data-i="${i}">
       <div><b>${m.f.firma}</b><span class="pill">${pill}</span></div>
       <div class="small">${m.f.ort}</div>
@@ -611,23 +587,9 @@ async function runTargetSearch(type, targetPrice){
       <div><b>Lieferpreis:</b> ${m.total.toFixed(2)} €</div>
     </div>
   `).join("");
-
-  resBox.innerHTML = html + `<div class="small">Zeige ${Math.min(20,matches.length)} von ${matches.length} Treffern.</div>`;
-
-  [...resBox.querySelectorAll(".item")].forEach(el=>{
-    el.addEventListener("click", ()=>{
-      const idx = +el.getAttribute("data-i");
-      const m = matches[idx];
-      const firmCoord = m.f._coord;
-      const cust = ctxCustomer;
-      closeCtx();
-      showRouteByCoords(cust.name, cust.coord, m.f.firma, firmCoord);
-      try{ m.f.marker.openTooltip?.(); }catch(e){}
-    });
-  });
 }
 
-/*** ====== LAYERS / FILTER ====== ***/
+/* ===== LAYERS / FILTER ===== */
 function updateLayers(){
   if(routeLine){map.removeLayer(routeLine);routeLine=null}
   map.closePopup(); selectedPoints=[];
@@ -680,7 +642,7 @@ function updateLayers(){
   }
 }
 
-/*** ====== PICK / CLEAR ====== ***/
+/* ===== PICK / CLEAR ===== */
 function pickPoint(label,coord){
   selectedPoints.push({label,coord});
   if(selectedPoints.length===2){const [a,b]=selectedPoints; selectedPoints=[]; showRoute(a,b);}
@@ -690,6 +652,35 @@ function clearRoute(){
   map.closePopup();
   selectedPoints = [];
 }
+
+/* ===== UNIT SWITCH ===== */
+function applyUnitUIOnly(){
+  if(isPellets()){
+    certTitle.textContent = "Zertifikate & Sackware";
+    sackSection.classList.remove("hidden");
+    kundenFilterSection.classList.remove("hidden");
+  }else{
+    certTitle.textContent = "Zertifikate";
+    sackSection.classList.add("hidden");
+    kundenFilterSection.classList.add("hidden");
+    chkSackFireflies.checked = false;
+    chkSack15kg.checked = false;
+    chkKunden.checked = true; chkSackKunden.checked = true; chkSonstigeKunden.checked = true;
+  }
+}
+
+async function switchUnit(newUnit){
+  currentUnit = newUnit;
+  applyUnitUIOnly();
+  closeCtx();
+  clearRoute();
+  werke = await loadWerkeForUnit(currentUnit);
+  await buildMap();
+}
+
+unitSelect.addEventListener("change", async ()=>{ await switchUnit(unitSelect.value); });
+
+/* ===== EVENTS ===== */
 map.on("click", (e)=>{
   if(ctxEl) return;
   if(routeLine){
@@ -700,44 +691,14 @@ map.on("click", (e)=>{
 });
 document.addEventListener("keydown", (e)=>{ if(e.key === "Escape") clearRoute(); });
 
-/*** ====== UNIT UI + DATA SWITCH ====== ***/
-function applyUnitUIOnly(){
-  if(isPellets()){
-    certTitle.textContent = "Zertifikate & Sackware";
-    sackSection.classList.remove("hidden");
-    kundenFilterSection.classList.remove("hidden");
-  }else{
-    certTitle.textContent = "Zertifikate";
-    sackSection.classList.add("hidden");
-    kundenFilterSection.classList.add("hidden");
-
-    chkSackFireflies.checked = false;
-    chkSack15kg.checked = false;
-
-    chkKunden.checked = true;
-    chkSackKunden.checked = true;
-    chkSonstigeKunden.checked = true;
-  }
-}
-
-async function switchUnit(newUnit){
-  currentUnit = newUnit;
-  applyUnitUIOnly();
-
+document.addEventListener("mousedown",(e)=>{
+  if(!ctxEl) return;
+  if(ctxEl.contains(e.target)) return;
   closeCtx();
-  resetMatchHighlights();
-  clearRoute();
-  if(searchMarker){ try{ map.removeLayer(searchMarker); }catch(e){} searchMarker=null; }
-
-  werke = await loadWerkeForUnit(currentUnit);
-  await buildMap(); // baut Marker neu + updateLayers
-}
-
-unitSelect.addEventListener("change", async ()=> {
-  await switchUnit(unitSelect.value);
 });
+map.on("movestart", closeCtx);
+map.on("zoomstart", closeCtx);
 
-/*** ====== COUNTRY DROPDOWN ====== ***/
 document.addEventListener("change",e=>{
   if(e.target?.matches('input[type="checkbox"]')){
     if(e.target.classList.contains("countryChk")){
@@ -748,10 +709,11 @@ document.addEventListener("change",e=>{
     updateLayers();
   }
 });
+
 countryDropdownBtn.addEventListener("click",()=>countryDropdownMenu.style.display=(countryDropdownMenu.style.display==="block"?"none":"block"));
 document.addEventListener("click",e=>{if(!countryDropdown.contains(e.target)) countryDropdownMenu.style.display="none"});
 
-/*** ====== SEARCH (mit Rechtsklick-Menü) ====== ***/
+/* ===== SEARCH ===== */
 searchInput.addEventListener("keydown",async e=>{
   if(e.key!=="Enter") return;
   const raw=e.target.value.trim(); if(!raw) return;
@@ -781,11 +743,6 @@ searchInput.addEventListener("keydown",async e=>{
     searchMarker=L.circleMarker(ll,{radius:8,color:"blue",fillColor:"blue",fillOpacity:.5}).addTo(map);
     searchMarker.bindTooltip(`<b>${raw}</b><br><small>Rechtsklick: Zielpreis-Suche</small>`,{sticky:true});
 
-    selectedPoints.push({label:raw,coord:coordObj});
-    searchMarker.on("click",()=>{
-      selectedPoints=[{label:raw,coord:coordObj}];
-    });
-
     searchMarker.on("contextmenu",(ev)=>{
       ev.originalEvent?.preventDefault?.();
       openCustomerMenu({ name: raw, ort: geo.country || raw }, coordObj, ev.originalEvent);
@@ -798,20 +755,11 @@ searchInput.addEventListener("keydown",async e=>{
   else alert("Kein Treffer gefunden.");
 });
 
-/*** ====== CONTEXT CLOSE ====== ***/
-document.addEventListener("mousedown",(e)=>{
-  if(!ctxEl) return;
-  if(ctxEl.contains(e.target)) return;
-  closeCtx();
-});
-map.on("movestart", closeCtx);
-map.on("zoomstart", closeCtx);
-
-/*** ====== INIT ====== ***/
+/* ===== INIT ===== */
 (async()=>{
   await loadKundenOnce();
   updateCountryButtonLabel();
-  await switchUnit(unitSelect.value); // lädt automatisch Pellets zuerst
+  await switchUnit(unitSelect.value); // startet mit Pellets
 })();
 </script>
 </body>
