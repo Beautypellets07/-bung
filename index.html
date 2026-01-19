@@ -51,7 +51,6 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 <body>
 <div id="map"></div>
 
-<!-- ✅ Unit ist unter Land/Länder -->
 <div class="box search">
   <div>🔍 <input id="searchInput" placeholder="Firma, Kunde oder Ort suchen…"></div>
 
@@ -112,6 +111,12 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
   <label><input type="checkbox" id="chkRot" checked> 🔴 ≥ 285 €</label><br>
   <label><input type="checkbox" id="chkGrau" checked> ⚪ kein Preis</label><br>
 
+  <hr style="border:none;height:1px;background:#eee;margin:6px 0">
+
+  <!-- ✅ NEU: Kunden anzeigen (für beide Units) -->
+  <label><input type="checkbox" id="chkShowCustomers" checked> 👥 Kunden anzeigen</label><br>
+
+  <!-- Pellets-spezifisch -->
   <div id="kundenFilterSection">
     <label><input type="checkbox" id="chkKunden" checked> 🔷 Pellethändler</label><br>
     <label><input type="checkbox" id="chkSackKunden" checked> 🟣 Sackwaren Händler</label><br>
@@ -124,16 +129,11 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 const sheetIdFirmen = "1fNUc0LJqBXxJdW1JRDfYxYORMuqeks_bHqp7zUq5Zmk";
 const sheetIdKunden = "1fK_rO1b2eI4sOvUKOufVgmd2lQ85KazPf5Kfm4Iia5I";
 
-/* Firmen:
-   - Pellets: gid=0
-   - Streusalz: Sheet-Tab "streusalz" (klein) */
+/* Pellets = gid=0, Streusalz = Tab "streusalz" */
 const STREUSALZ_SHEET_NAME = "streusalz";
 const sheetUrlFirmenPellets = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/export?format=csv&gid=0`;
 const sheetUrlFirmenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 
-/* Kunden:
-   - Pellets: gid=0
-   - Streusalz: Sheet-Tab "streusalz" (klein) */
 const sheetUrlKundenPellets = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/export?format=csv&gid=0`;
 const sheetUrlKundenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 
@@ -167,6 +167,7 @@ const chkOrange = document.getElementById("chkOrange");
 const chkRot = document.getElementById("chkRot");
 const chkGrau = document.getElementById("chkGrau");
 
+const chkShowCustomers = document.getElementById("chkShowCustomers");
 const chkKunden = document.getElementById("chkKunden");
 const chkSackKunden = document.getElementById("chkSackKunden");
 const chkSonstigeKunden = document.getElementById("chkSonstigeKunden");
@@ -418,9 +419,6 @@ async function osrmDistKm(a,b){
   return null;
 }
 
-/* ✅ GLEICHE RECHNUNG, ABER MARGE:
-   - Pellets: 5%  (x1.05)
-   - Streusalz: 20% (x1.20) */
 function calcDeliveredPrice(distKm, basePrice){
   const preisProKm = distKm < 250 ? 2.15 : 1.85;
   const berechnung = (distKm/24) * preisProKm;
@@ -464,7 +462,7 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
     <b>Entfernung:</b> ${distKm.toFixed(1)} km ${dashed?"(Luftlinie)":"(Straße)"}<br>
     ${durStr?`<b>Dauer:</b> ${durStr}<br>`:""}
     <b>Preis pro km:</b> ${preisProKm.toFixed(2)} €<br>
-    <b>${(isPellets() && useSack)?"Sackware-Preis":"Werkspreis"}:</b> ${(base||0).toFixed(2)} €<br>
+    <b>Werkspreis:</b> ${(base||0).toFixed(2)} €<br>
     <b>Marge:</b> ${margeTxt}<br>
     <b>Gesamtkosten:</b> <span style="color:green;font-size:1.1em">${total.toFixed(2)} €</span>
     ${dashed?`<br><small>Keine Straßenroute verfügbar → Luftlinie gestrichelt.</small>`:""}
@@ -616,9 +614,11 @@ function updateLayers(){
   const en=chkEnPlus.checked, din=chkDINplus.checked, sure=chkSURE.checked, cpp=chkCPP.checked, ohne=chkOhneZert.checked;
   const gr=chkGruen.checked, or=chkOrange.checked, ro=chkRot.checked, ga=chkGrau.checked;
 
-  const showK = isPellets() ? chkKunden.checked : true;
-  const showSK = isPellets() ? chkSackKunden.checked : true;
-  const showS = isPellets() ? chkSonstigeKunden.checked : true;
+  const customersOn = chkShowCustomers.checked;
+
+  const showK  = isPellets() ? chkKunden.checked      : true;
+  const showSK = isPellets() ? chkSackKunden.checked  : true;
+  const showS  = isPellets() ? chkSonstigeKunden.checked : true;
 
   const wantF = isPellets() ? chkSackFireflies.checked : false;
   const want15 = isPellets() ? chkSack15kg.checked : false;
@@ -629,10 +629,12 @@ function updateLayers(){
 
     if(!noCountry && (!m.country_code || !selected.includes(m.country_code))) continue;
 
-    if(m.type==="kunde"){ if(showK) map.addLayer(m.marker); continue; }
-    if(m.type==="sackkunde"){ if(showSK) map.addLayer(m.marker); continue; }
-    if(m.type==="sonstige"){ if(showS) map.addLayer(m.marker); continue; }
+    // ✅ Kunden layer: nur wenn "Kunden anzeigen" aktiv ist
+    if(m.type==="kunde"){ if(customersOn && showK) map.addLayer(m.marker); continue; }
+    if(m.type==="sackkunde"){ if(customersOn && showSK) map.addLayer(m.marker); continue; }
+    if(m.type==="sonstige"){ if(customersOn && showS) map.addLayer(m.marker); continue; }
 
+    // Firmen
     if(useSack){
       const s=lc(m.sack).replace(/\s+/g," ");
       const hasF=s.includes("fireflies"), has15=s.includes("15 kg")||s.includes("15kg");
@@ -693,7 +695,7 @@ async function switchUnit(newUnit){
   clearRoute();
 
   werke = await loadWerkeForUnit(currentUnit);
-  kunden = await loadKundenForUnit(currentUnit); // ✅ Streusalz lädt Tab "streusalz"
+  kunden = await loadKundenForUnit(currentUnit);
 
   await buildMap();
 }
@@ -778,7 +780,7 @@ searchInput.addEventListener("keydown",async e=>{
 /*** ===== INIT ===== */
 (async()=>{
   updateCountryButtonLabel();
-  await switchUnit(unitSelect.value); // startet mit Pellets
+  await switchUnit(unitSelect.value);
 })();
 </script>
 </body>
