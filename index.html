@@ -124,11 +124,16 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 const sheetIdFirmen = "1fNUc0LJqBXxJdW1JRDfYxYORMuqeks_bHqp7zUq5Zmk";
 const sheetIdKunden = "1fK_rO1b2eI4sOvUKOufVgmd2lQ85KazPf5Kfm4Iia5I";
 
+/* Firmen:
+   - Pellets: gid=0
+   - Streusalz: Sheet-Tab "streusalz" (klein) */
 const STREUSALZ_SHEET_NAME = "streusalz";
-
 const sheetUrlFirmenPellets = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/export?format=csv&gid=0`;
 const sheetUrlFirmenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 
+/* Kunden:
+   - Pellets: gid=0
+   - Streusalz: Sheet-Tab "streusalz" (klein) */
 const sheetUrlKundenPellets = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/export?format=csv&gid=0`;
 const sheetUrlKundenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 
@@ -177,7 +182,6 @@ const str=v=>String(v??"").trim();
 
 function isPellets(){ return currentUnit==="pellets"; }
 function sackAktiv(){ return isPellets() && (chkSackFireflies.checked || chkSack15kg.checked); }
-
 function colorForPrice(p,kein){
   if(kein||!isFinite(p)||p<=0) return "#9e9e9e";
   if(p<=260) return "green";
@@ -209,12 +213,7 @@ let ctxEl=null, ctxCustomer=null, matchMarkers=[];
 
 /*** ====== UI helpers ====== ***/
 function closeCtx(){ if(ctxEl){ctxEl.remove(); ctxEl=null;} ctxCustomer=null; }
-function resetMatchHighlights(){
-  for(const m of matchMarkers){
-    try{ if(m.marker.setStyle && m._origStyle) m.marker.setStyle(m._origStyle);}catch(e){}
-  }
-  matchMarkers=[];
-}
+function resetMatchHighlights(){ for(const m of matchMarkers){ try{ if(m.marker.setStyle && m._origStyle) m.marker.setStyle(m._origStyle);}catch(e){} } matchMarkers=[]; }
 function stopEvt(el){
   if(!el) return;
   L.DomEvent.disableClickPropagation(el);
@@ -243,7 +242,6 @@ function parseFirmenArray(table){
   let ortIdx  = findIndex(headers, ["ort","stadt","standort","adresse","location"]); if(ortIdx<0) ortIdx = 1;
 
   const preisIdx = 2; // Spalte C
-
   let sackIdx = findIndex(headers, ["sackwarenpreis","sackwarepreis","preis_sack","sackpreis","preis sack"]);
   if(sackIdx<0) sackIdx = 3;
 
@@ -275,13 +273,12 @@ function parseKunden(rows){
     loseKey=(keys.find(k=>lc(k)==="lose")||"lose"),
     sackKey=(keys.find(k=>lc(k)==="sackware")||"sackware"),
     sonstKey=(keys.find(k=>lc(k)==="sonstige")||"sonstige");
-
   return rows.map(x=>({
     name:str(x[nameKey]),
     ort:str(x[ortKey]),
     lose:lc(x[loseKey]),
     sackware:lc(x[sackKey]),
-    sonstige:lc(x[sonstKey]) // ✅ immer "sonstige" korrekt
+    sonstige:lc(x[sonstKey])
   })).filter(x=>x.name&&x.ort);
 }
 
@@ -295,7 +292,6 @@ function normalizePreise(d){
     x.keinPreisWerk = !(isFinite(x._preisOrig) && x._preisOrig>0);
     x.keinPreisSack = !(isFinite(x._preisSackOrig) && x._preisSackOrig>0);
 
-    // Karte darf weiterhin Durchschnitt zeigen
     if(x.keinPreisWerk) x.preis = avgW;
     if(x.keinPreisSack) x.preisSack = avgS;
 
@@ -388,21 +384,9 @@ async function buildMap(){
 
   for(const k of kunden){
     const c=geoCache[k.ort]?.country_code?geoCache[k.ort]:await geocode(k.ort); if(!c) continue;
-
-    // ✅ Fix: sonstige heißt bei uns "sonstige"
-    const isSonstige = (k.sonstige === "ja") || (k.sonstige === "true") || (k.sonstige === "1") || (k.sonstige === "yes") || (k.sonstige === "y") || (k.sonstige === "on") || (k.sonstige === "x")
-      || (k.sonstige === undefined && (k.sonstige !== undefined)); // fallback nicht relevant
-    // Wir benutzen aber parseKunden -> "sonstige" als "sonstige" column,
-    // daher:
-    const isSonst = (k.sonstige === "ja") || (k.sonstige === "true") || (k.sonstige === "1");
-    // safer:
-    const isSonst2 = (k.sonstige === "ja");
-    const isSonstigeReal = (k.sonstige === "ja") || (k.sonstige === "true") || (k.sonstige === "1") || (k.sonstige === "x") || (k.sonstige === "yes");
-
-    const isSackOnly = (k.sackware==="ja") && (k.lose!=="ja");
-
-    const type = isSonstigeReal ? "sonstige" : (isSackOnly ? "sackkunde" : "kunde");
-    const icon = (type==="sonstige") ? iconOrange : (type==="sackkunde" ? iconPurple : iconBlue);
+    const isSackOnly=(k.sackware==="ja")&&(k.lose!=="ja"), isSonstige=(k.sonstige==="ja");
+    const type=isSonstige?"sonstige":isSackOnly?"sackkunde":"kunde";
+    const icon=isSonstige?iconOrange:isSackOnly?iconPurple:iconBlue;
 
     const m=L.marker([c.lat,c.lon],{icon})
       .bindTooltip(`<b>${k.name}</b><br>${k.ort}<br><small>Rechtsklick: Zielpreis-Suche</small>`,{sticky:true})
@@ -434,7 +418,9 @@ async function osrmDistKm(a,b){
   return null;
 }
 
-// ✅ Rechnung: Pellets 5%, Streusalz 20%
+/* ✅ GLEICHE RECHNUNG, ABER MARGE:
+   - Pellets: 5%  (x1.05)
+   - Streusalz: 20% (x1.20) */
 function calcDeliveredPrice(distKm, basePrice){
   const preisProKm = distKm < 250 ? 2.15 : 1.85;
   const berechnung = (distKm/24) * preisProKm;
@@ -472,11 +458,9 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
 
   if(routeLine) map.removeLayer(routeLine);
   routeLine=L.polyline(coords,{color:"blue",weight:5,opacity:.85,dashArray:dashed?"8 8":null}).addTo(map);
-
   const mid=coords[Math.floor(coords.length/2)];
   L.popup().setLatLng(mid).setContent(`
     <b>Route:</b> ${aLabel} ↔ ${bLabel}<br>
-    <b>Unit:</b> ${isPellets() ? "Pellets" : "Streusalz"}<br>
     <b>Entfernung:</b> ${distKm.toFixed(1)} km ${dashed?"(Luftlinie)":"(Straße)"}<br>
     ${durStr?`<b>Dauer:</b> ${durStr}<br>`:""}
     <b>Preis pro km:</b> ${preisProKm.toFixed(2)} €<br>
@@ -485,10 +469,8 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
     <b>Gesamtkosten:</b> <span style="color:green;font-size:1.1em">${total.toFixed(2)} €</span>
     ${dashed?`<br><small>Keine Straßenroute verfügbar → Luftlinie gestrichelt.</small>`:""}
   `).openOn(map);
-
   map.fitBounds(routeLine.getBounds(),{padding:[40,40]});
 }
-
 function showRoute(a,b){ return showRouteByCoords(a.label, a.coord, b.label, b.coord); }
 
 /*** ===== CONTEXT MENU (Zielpreis) ===== */
@@ -557,7 +539,6 @@ async function runTargetSearch(type, targetPrice){
   const resBox = ctxEl.querySelector("#ctxResults");
   resBox.innerHTML = `<div class="small">Suche…</div>`;
 
-  // ✅ nur echte Originalpreise (kein Durchschnitt)
   const firmsVisible = alleMarker
     .filter(m => m.type==="firma" && map.hasLayer(m.marker))
     .map(m => {
@@ -598,16 +579,6 @@ async function runTargetSearch(type, targetPrice){
     return;
   }
 
-  resetMatchHighlights();
-  for(const m of matches.slice(0,12)){
-    const mm = m.f;
-    if(mm.marker.setStyle){
-      mm._origStyle = {color:mm.marker.options.color, fillColor:mm.marker.options.fillColor, fillOpacity:mm.marker.options.fillOpacity};
-      mm.marker.setStyle({color:"#000", fillColor:"#000", fillOpacity:0.85});
-      matchMarkers.push(mm);
-    }
-  }
-
   const pill = isPellets() ? (type==="sack"?"Sackware":"Lose") : "Streusalz";
   const baseLabel = isPellets()
     ? (type==="sack" ? "Sackware-Preis" : "Werkspreis")
@@ -621,9 +592,9 @@ async function runTargetSearch(type, targetPrice){
       <div class="small"><b>${baseLabel}:</b> ${m.f.base.toFixed(2)} €</div>
       <div><b>Lieferpreis:</b> ${m.total.toFixed(2)} €</div>
     </div>
-  `).join("") + `<div class="small">Zeige ${Math.min(20,matches.length)} von ${matches.length} Treffern.</div>`;
+  `).join("");
 
-  [...resBox.querySelectorAll(".item")].forEach(el=>{
+  [...resBox.querySelectorAll(".item")].forEach((el)=>{
     el.addEventListener("click", ()=>{
       const idx = +el.getAttribute("data-i");
       const m = matches[idx];
@@ -642,7 +613,6 @@ function updateLayers(){
   if(searchMarker){map.removeLayer(searchMarker);searchMarker=null}
 
   const selected=getSelectedCountries(), noCountry=(selected.length===1&&selected[0]==="all");
-
   const en=chkEnPlus.checked, din=chkDINplus.checked, sure=chkSURE.checked, cpp=chkCPP.checked, ohne=chkOhneZert.checked;
   const gr=chkGruen.checked, or=chkOrange.checked, ro=chkRot.checked, ga=chkGrau.checked;
 
@@ -707,7 +677,6 @@ function applyUnitUIOnly(){
     sackSection.classList.remove("hidden");
     kundenFilterSection.classList.remove("hidden");
   }else{
-    // Streusalz: rechts NUR Zertifikate
     certTitle.textContent = "Zertifikate";
     sackSection.classList.add("hidden");
     kundenFilterSection.classList.add("hidden");
@@ -724,7 +693,7 @@ async function switchUnit(newUnit){
   clearRoute();
 
   werke = await loadWerkeForUnit(currentUnit);
-  kunden = await loadKundenForUnit(currentUnit);
+  kunden = await loadKundenForUnit(currentUnit); // ✅ Streusalz lädt Tab "streusalz"
 
   await buildMap();
 }
@@ -809,7 +778,6 @@ searchInput.addEventListener("keydown",async e=>{
 /*** ===== INIT ===== */
 (async()=>{
   updateCountryButtonLabel();
-  applyUnitUIOnly();
   await switchUnit(unitSelect.value); // startet mit Pellets
 })();
 </script>
