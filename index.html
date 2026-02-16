@@ -26,25 +26,6 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 .ddm{position:absolute;top:110%;left:0;background:#fff;border:1px solid #ccc;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.12);z-index:4000;display:none;min-width:160px;max-height:260px;overflow:auto;padding:6px 8px;box-sizing:border-box}
 .ddm label{display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;margin:0;white-space:nowrap}
 
-/* ===== Rechtsklick-Box (Kundenmenü) ===== */
-.ctxbox{
-  position:absolute; z-index:6000;
-  background:#fff; border-radius:10px;
-  box-shadow:0 10px 24px rgba(0,0,0,.18);
-  padding:10px; width:280px;
-  font:14px/1.25 system-ui, Arial;
-  border:1px solid rgba(0,0,0,.10);
-}
-.ctxbox b{display:block;margin-bottom:6px}
-.ctxbox .row{display:flex; gap:8px; margin:8px 0}
-.ctxbox select,.ctxbox input{width:100%; padding:7px 8px; border:1px solid #ccc; border-radius:6px; outline:none; box-sizing:border-box;}
-.ctxbox .results{margin-top:8px; max-height:240px; overflow:auto; border-top:1px solid #eee; padding-top:8px;}
-.ctxbox .item{padding:8px; border:1px solid #eee; border-radius:8px; cursor:pointer; margin:6px 0;}
-.ctxbox .item:hover{background:#fafafa}
-.ctxbox .small{font-size:12px;opacity:.75}
-.ctxbox .pill{display:inline-block; padding:2px 6px; border-radius:999px; background:#f2f2f2; font-size:12px; margin-left:6px;}
-.ctxbox .topbar{display:flex;justify-content:space-between;align-items:center;gap:8px}
-.ctxbox .xbtn{border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;padding:2px 8px; line-height:1.6;}
 .hidden{display:none!important}
 
 /* Debug */
@@ -74,10 +55,7 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 
 <body>
 <div id="map"></div>
-<div class="debugbox" id="dbg">
-  <b>Debug</b>
-  <div>Start…</div>
-</div>
+<div class="debugbox" id="dbg"><b>Debug</b><div>Start…</div></div>
 
 <!-- Suche + Länder + Unit -->
 <div class="box search">
@@ -155,18 +133,13 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 
 <script>
 /*** =========================
- *  GEOCACHE.JSON MODE (B)
- *  =========================
- *  - Keine Live-Geocoding Requests mehr
- *  - Koordinaten kommen aus geocache.json (und localStorage Cache)
- *  - Fehlende Orte werden gelistet, damit du sie einmalig ergänzt
- ***/
-const GEOCACHE_URL = "./geocache.json"; // <-- gleiche Ordner wie HTML
+ *  GEOCACHE.JSON MODE
+ *  ========================= */
+const GEOCACHE_URL = "./geocache.json";      // Datei neben HTML
 const LOCAL_CACHE_KEY = "geoCachePellets_EU_JSON_v1";
-const ENABLE_FALLBACK_GEOCODE = false;  // <- absichtlich AUS (damit nie wieder Limits)
-const FALLBACK_GEOCODE_DELAY_MS = 1100; // nur relevant wenn du oben true setzt
+const ENABLE_FALLBACK_GEOCODE = false;       // absichtlich AUS
 
-/*** ====== SHEETS (DEINE IDS) ====== ***/
+/*** SHEETS ***/
 const sheetIdFirmen = "1fNUc0LJqBXxJdW1JRDfYxYORMuqeks_bHqp7zUq5Zmk";
 const sheetIdKunden = "1fK_rO1b2eI4sOvUKOufVgmd2lQ85KazPf5Kfm4Iia5I";
 const STREUSALZ_SHEET_NAME = "streusalz";
@@ -176,7 +149,7 @@ const sheetUrlKundenPellets   = `https://docs.google.com/spreadsheets/d/${sheetI
 const sheetUrlFirmenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 const sheetUrlKundenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 
-/*** DEBUG HELPERS ***/
+/*** DEBUG ***/
 const dbg = (msg, ok=true) => {
   const el = document.getElementById("dbg");
   if(!el) return;
@@ -188,11 +161,11 @@ const dbg = (msg, ok=true) => {
 window.addEventListener("error", (e)=>dbg("JS ERROR: "+(e.message||"unknown"), false));
 window.addEventListener("unhandledrejection", (e)=>dbg("PROMISE ERROR: "+(e.reason?.message||e.reason||"unknown"), false));
 
-/*** ====== MAP ====== ***/
+/*** MAP ***/
 const map=L.map("map").setView([51,11],5);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{minZoom:4,maxZoom:18,attribution:"&copy; OpenStreetMap"}).addTo(map);
 
-/*** ====== DOM ====== ***/
+/*** DOM ***/
 const unitSelect = document.getElementById("unitSelect");
 const searchInput = document.getElementById("searchInput");
 const countryDropdown = document.getElementById("countryDropdown");
@@ -221,16 +194,13 @@ const chkSackKunden = document.getElementById("chkSackKunden");
 const chkSonstigeKunden = document.getElementById("chkSonstigeKunden");
 const chkKundenStreusalz = document.getElementById("chkKundenStreusalz");
 
-/*** ====== STATE / HELPERS ====== ***/
+/*** HELPERS ***/
 let currentUnit = unitSelect.value;
-
 const num=v=>{v=String(v??"").trim().replace(",",".");v=v.replace(/€/g,"").trim();const n=+v;return isFinite(n)?n:NaN};
 const lc=s=>String(s??"").toLowerCase().trim();
 const str=v=>String(v??"").trim();
-
 function isPellets(){ return currentUnit==="pellets"; }
 function sackAktiv(){ return isPellets() && (chkSackFireflies.checked || chkSack15kg.checked); }
-
 function colorForPrice(p,kein){
   if(kein||!isFinite(p)||p<=0) return "#9e9e9e";
   if(p<=260) return "green";
@@ -245,21 +215,16 @@ const tri=(fill)=>L.divIcon({
 });
 const iconBlue=tri("blue"), iconPurple=tri("purple"), iconOrange=tri("orange");
 
-/*** ====== GEO CACHE (JSON + LocalStorage) ====== ***/
-let geoCache = {}; // key -> {lat, lon, country_code?}
-try{
-  geoCache = JSON.parse(localStorage.getItem(LOCAL_CACHE_KEY) || "{}");
-}catch(e){ geoCache = {}; }
-
-let geoJson = {};       // from geocache.json
+/*** GEO CACHE ***/
+let geoCache = {};
+try{ geoCache = JSON.parse(localStorage.getItem(LOCAL_CACHE_KEY) || "{}"); }catch(e){ geoCache={}; }
+let geoJson = {};
 let geoJsonLoaded = false;
 
 function saveLocalGeoCache(){
   try{ localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(geoCache)); }catch(e){}
 }
-
 function normKey(s){
-  // aggressive normalize so "Bahnhofstraße" and "Bahnhofstrasse" match
   return lc(s)
     .replace(/[„“”"]/g,"")
     .replace(/\s+/g," ")
@@ -268,49 +233,20 @@ function normKey(s){
     .replace(/[.,]/g,"")
     .trim();
 }
-
-// Resolves coords for an address string via:
-// 1) localStorage cache
-// 2) geocache.json
-// 3) (optional) fallback geocode (disabled by default)
 async function getCoordForAddress(address){
   const raw = str(address);
   if(!raw) return null;
-
   const key = normKey(raw);
 
   if(geoCache[key]?.lat && geoCache[key]?.lon) return geoCache[key];
-  if(geoJsonLoaded && geoJson[key]?.lat && geoJson[key]?.lon) {
-    // also store locally for even faster next time
+  if(geoJsonLoaded && geoJson[key]?.lat && geoJson[key]?.lon){
     geoCache[key] = geoJson[key];
     saveLocalGeoCache();
     return geoJson[key];
   }
-
   if(!ENABLE_FALLBACK_GEOCODE) return null;
-
-  // Optional fallback (if you ever enable it)
-  await new Promise(r=>setTimeout(r, FALLBACK_GEOCODE_DELAY_MS));
-  const g = await geocodeSafe(raw);
-  if(!g) return null;
-  geoCache[key] = {lat:g.lat, lon:g.lon, country_code:g.country_code||""};
-  saveLocalGeoCache();
-  return geoCache[key];
+  return null;
 }
-
-/*** ✅ (Optional) Nominatim fallback – stays safe (but OFF by default) ***/
-async function geocodeSafe(q){
-  try{
-    const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&limit=1&accept-language=de`);
-    const d=await r.json();
-    if(!d.length) return null;
-    const a=d[0].address||{};
-    return {lat:+d[0].lat, lon:+d[0].lon, country:a.country||"", country_code:(a.country_code||"").toLowerCase()};
-  }catch(e){
-    return null;
-  }
-}
-
 async function loadGeoJson(){
   dbg("Lade geocache.json …");
   try{
@@ -323,25 +259,24 @@ async function loadGeoJson(){
   }catch(e){
     geoJsonLoaded = false;
     geoJson = {};
-    dbg(`geocache.json FEHLT/ERROR (${e.message}). Marker brauchen Cache!`, false);
-    dbg(`Tipp: Lege eine Datei "geocache.json" neben die HTML.`, false);
+    dbg(`geocache.json FEHLT/ERROR (${e.message})`, false);
+    dbg(`Lege "geocache.json" neben die HTML (gleicher Ordner).`, false);
   }
 }
 
-/*** ====== DATA CACHES ====== ***/
+/*** DATA ***/
 let werkePellets=null, werkeStreusalz=null, werke=[];
 let kundenPellets=null, kundenStreusalz=null, kunden=[];
 let alleMarker=[], selectedPoints=[], routeLine=null, searchMarker=null;
-
 let buildToken=0;
+let missingAddresses = new Set();
 
-/*** ====== PARSER ====== ***/
+/*** PARSER ***/
 function findIndex(headers, cands){
   const hs=headers.map(h=>lc(h));
   const cs=cands.map(c=>lc(c));
   return hs.findIndex(h=>cs.includes(h));
 }
-
 function parseFirmenArray(table){
   if(!table || table.length<2) return [];
   const headers=(table[0]||[]).map(x=>str(x));
@@ -350,7 +285,7 @@ function parseFirmenArray(table){
   let nameIdx = findIndex(headers, ["firma","name","werk"]); if(nameIdx<0) nameIdx = 0;
   let ortIdx  = findIndex(headers, ["ort","stadt","standort","adresse","location"]); if(ortIdx<0) ortIdx = 1;
 
-  const preisIdx = 2; // Spalte C
+  const preisIdx = 2;
   let sackIdx = findIndex(headers, ["sackwarenpreis","sackwarepreis","preis_sack","sackpreis","preis sack"]);
   if(sackIdx<0) sackIdx = 3;
 
@@ -374,7 +309,6 @@ function parseFirmenArray(table){
       };
     });
 }
-
 function parseKunden(rows){
   const keys=Object.keys(rows[0]||{});
   const nameKey=(keys.find(k=>["name","kunde","kundenname"].includes(lc(k)))||keys[0]);
@@ -391,7 +325,6 @@ function parseKunden(rows){
     sonstige:lc(x[sonstKey])
   })).filter(x=>x.name&&x.ort);
 }
-
 function normalizePreise(d){
   const w=d.filter(x=>isFinite(x.preis)&&x.preis>0);
   const s=d.filter(x=>isFinite(x.preisSack)&&x.preisSack>0);
@@ -409,7 +342,7 @@ function normalizePreise(d){
   });
 }
 
-/*** ====== LOADERS ====== ***/
+/*** LOADERS ***/
 async function loadWerkeForUnit(unit){
   if(unit==="pellets" && werkePellets) return werkePellets;
   if(unit==="streusalz" && werkeStreusalz) return werkeStreusalz;
@@ -456,7 +389,7 @@ async function loadKundenForUnit(unit){
   return data;
 }
 
-/*** ====== COUNTRY ====== ***/
+/*** COUNTRY UI ***/
 function getSelectedCountries(){
   const s=[...document.querySelectorAll(".countryChk")].filter(c=>c.checked).map(c=>c.value);
   return (!s.length||s.includes("all"))?["all"]:s;
@@ -468,119 +401,21 @@ function updateCountryButtonLabel(){
   countryDropdownBtn.textContent=s.map(c=>names[c]||c.toUpperCase()).join(", ");
 }
 
-/*** ====== TOOLTIP ====== ***/
-function tooltipFirma(m){
-  const useSack = sackAktiv();
-  const p = (isPellets() && useSack)
-    ? (m.keinPreisSack ? NaN : m._preisSackOrig)
-    : (m.keinPreisWerk ? NaN : m._preisOrig);
-
-  const preisTxt = (isFinite(p)&&p>0) ? `${p.toFixed(2)} €` : "–";
-  const z=m.zert?`<br><b>Zertifikat:</b> ${m.zert}`:"";
-  const s=(isPellets() && m.sack)?`<br><b>Sackware:</b> ${m.sack}`:"";
-  return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${z}${s}`;
-}
-
-/*** ===== ROUTE / PRICE ===== */
-function luftlinieKm(a,b){
-  const R=6371,toRad=x=>x*Math.PI/180, dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon), la1=toRad(a.lat), la2=toRad(b.lat);
-  const h=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
-  return 2*R*Math.atan2(Math.sqrt(h),Math.sqrt(1-h));
-}
-async function osrmDistKm(a,b){
-  const url=`https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=false`;
-  const res=await fetch(url);
-  const data=res.ok?await res.json():null;
-  if(data?.routes?.length) return data.routes[0].distance/1000;
-  return null;
-}
-function calcDeliveredPrice(distKm, basePrice){
-  const preisProKm = distKm < 250 ? 2.15 : 1.85;
-  const berechnung = (distKm/24) * preisProKm;
-  const margeFaktor = (currentUnit === "streusalz") ? 1.20 : 1.05;
-  const total = (berechnung + (basePrice||0)) * margeFaktor;
-  return { total, preisProKm, margeFaktor };
-}
-async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
-  const osrm=`https://router.project-osrm.org/route/v1/driving/${aCoord.lon},${aCoord.lat};${bCoord.lon},${bCoord.lat}?overview=full&geometries=geojson`;
-  let distKm=null, coords=null, dashed=false, durStr="";
-  try{
-    const res=await fetch(osrm);
-    const data=res.ok?await res.json():null;
-    if(data?.routes?.length){
-      const r=data.routes[0];
-      distKm=r.distance/1000;
-      const min=r.duration/60, h=Math.floor(min/60), m=Math.round(min%60);
-      durStr=h?`${h}h ${m}min`:`${m}min`;
-      coords=r.geometry.coordinates.map(c=>[c[1],c[0]]);
-    }
-  }catch(e){}
-  if(!distKm){
-    distKm=luftlinieKm(aCoord,bCoord);
-    coords=[[aCoord.lat,aCoord.lon],[bCoord.lat,bCoord.lon]];
-    dashed=true;
-  }
-
-  const useSack = sackAktiv();
-  const firm = werke.find(w=>w.firma===aLabel || w.firma===bLabel);
-  const base = firm ? ((isPellets() && useSack) ? firm.preisSack : firm.preis) : 0;
-
-  const {total, preisProKm, margeFaktor} = calcDeliveredPrice(distKm, base);
-  const margeTxt = (margeFaktor===1.20) ? "20%" : "5%";
-
-  if(routeLine) map.removeLayer(routeLine);
-  routeLine=L.polyline(coords,{color:"blue",weight:5,opacity:.85,dashArray:dashed?"8 8":null}).addTo(map);
-  const mid=coords[Math.floor(coords.length/2)];
-
-  L.popup().setLatLng(mid).setContent(`
-    <b>Route:</b> ${aLabel} ↔ ${bLabel}<br>
-    <b>Entfernung:</b> ${distKm.toFixed(1)} km ${dashed?"(Luftlinie)":"(Straße)"}<br>
-    ${durStr?`<b>Dauer:</b> ${durStr}<br>`:""}
-    <b>Preis pro km:</b> ${preisProKm.toFixed(2)} €<br>
-    <b>${(isPellets() && useSack)?"Sackware-Preis":"Werkspreis"}:</b> ${(base||0).toFixed(2)} €<br>
-    <b>Marge:</b> ${margeTxt}<br>
-    <b>Gesamtkosten:</b> <span style="color:green;font-size:1.1em">${total.toFixed(2)} €</span>
-    ${dashed?`<br><small>Keine Straßenroute verfügbar → Luftlinie gestrichelt.</small>`:""}
-  `).openOn(map);
-
-  map.fitBounds(routeLine.getBounds(),{padding:[40,40]});
-}
-function showRoute(a,b){ return showRouteByCoords(a.label, a.coord, b.label, b.coord); }
-
-function pickPoint(label,coord){
-  selectedPoints.push({label,coord});
-  if(selectedPoints.length===2){
-    const [a,b]=selectedPoints; selectedPoints=[];
-    showRoute(a,b);
-  }
-}
-function clearRoute(){
-  if(routeLine){ map.removeLayer(routeLine); routeLine = null; }
-  map.closePopup();
-  selectedPoints = [];
-}
-
-/*** ====== BUILD MAP (geocache.json) ====== ***/
-let missingAddresses = new Set();
-let routeLine = null;
-
+/*** Missing Box ***/
 function renderMissingBox(){
-  // remove old area
   const dbgEl = document.getElementById("dbg");
   if(!dbgEl) return;
 
   const old = dbgEl.querySelector(".missingWrap");
   if(old) old.remove();
-
   if(missingAddresses.size === 0) return;
 
   const wrap = document.createElement("div");
   wrap.className = "missingWrap";
-  const list = [...missingAddresses].slice(0, 200).join("\n");
+  const list = [...missingAddresses].slice(0, 300).join("\n");
 
   wrap.innerHTML = `
     <div style="margin-top:8px;font-weight:700">Fehlende Orte (${missingAddresses.size})</div>
-    <div style="opacity:.85;margin-top:2px">Diese Adressen fehlen in geocache.json / localStorage:</div>
     <button class="btn" id="copyMissing">📋 Kopieren</button>
     <textarea readonly id="missingText"></textarea>
   `;
@@ -594,13 +429,13 @@ function renderMissingBox(){
       await navigator.clipboard.writeText(ta.value);
       dbg("Fehlende Orte kopiert ✅", true);
     }catch(e){
-      ta.select();
-      document.execCommand("copy");
+      ta.select(); document.execCommand("copy");
       dbg("Kopieren (fallback) ✅", true);
     }
   });
 }
 
+/*** BUILD MAP ***/
 async function buildMap(){
   const myToken=++buildToken;
 
@@ -613,17 +448,12 @@ async function buildMap(){
   // Firmen
   for(const w of werke){
     if(myToken!==buildToken) return;
-
     const c = await getCoordForAddress(w.ort);
-    if(!c){
-      missingAddresses.add(str(w.ort));
-      continue;
-    }
+    if(!c){ missingAddresses.add(str(w.ort)); continue; }
 
     const farbe = (isPellets() && sackAktiv()) ? w.farbeSack : w.farbeWerk;
     const cm=L.circleMarker([c.lat,c.lon],{radius:8,color:farbe,fillColor:farbe,fillOpacity:.85})
-      .bindTooltip("",{sticky:true})
-      .on("tooltipopen",()=>cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code||""})))
+      .bindTooltip(`<b>${w.firma}</b><br>${w.ort}`,{sticky:true})
       .on("click",()=>pickPoint(w.firma,{lat:c.lat,lon:c.lon}));
 
     alleMarker.push({type:"firma",marker:cm,...w,country_code:c.country_code||"", _coord:{lat:c.lat,lon:c.lon}});
@@ -633,12 +463,8 @@ async function buildMap(){
   // Kunden
   for(const k of kunden){
     if(myToken!==buildToken) return;
-
     const c = await getCoordForAddress(k.ort);
-    if(!c){
-      missingAddresses.add(str(k.ort));
-      continue;
-    }
+    if(!c){ missingAddresses.add(str(k.ort)); continue; }
 
     let type="kunde", icon=iconBlue;
     if(isPellets()){
@@ -663,7 +489,7 @@ async function buildMap(){
   updateLayers();
 
   if(missingAddresses.size){
-    dbg(`Fehlende Koordinaten: ${missingAddresses.size} (siehe Box unten)`, false);
+    dbg(`Fehlende Koordinaten: ${missingAddresses.size}`, false);
     renderMissingBox();
   }else{
     dbg("Alle Orte gefunden ✅", true);
@@ -671,19 +497,58 @@ async function buildMap(){
   }
 }
 
-/*** ===== LAYERS ===== */
+/*** ROUTE ***/
+function pickPoint(label,coord){
+  selectedPoints.push({label,coord});
+  if(selectedPoints.length===2){
+    const [a,b]=selectedPoints; selectedPoints=[];
+    showRouteByCoords(a.label,a.coord,b.label,b.coord);
+  }
+}
+function clearRoute(){
+  if(routeLine){ map.removeLayer(routeLine); routeLine = null; }
+  map.closePopup();
+  selectedPoints = [];
+}
+function luftlinieKm(a,b){
+  const R=6371,toRad=x=>x*Math.PI/180, dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon), la1=toRad(a.lat), la2=toRad(b.lat);
+  const h=Math.sin(dLat/2)**2+Math.cos(la1)*la2 && 0 || (Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2);
+  // fix: do it correctly:
+}
+function haversineKm(a,b){
+  const R=6371, toRad=x=>x*Math.PI/180;
+  const dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon);
+  const la1=toRad(a.lat), la2=toRad(b.lat);
+  const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+  return 2*R*Math.atan2(Math.sqrt(h),Math.sqrt(1-h));
+}
+async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
+  const osrm=`https://router.project-osrm.org/route/v1/driving/${aCoord.lon},${aCoord.lat};${bCoord.lon},${bCoord.lat}?overview=full&geometries=geojson`;
+  let distKm=null, coords=null, dashed=false;
+  try{
+    const res=await fetch(osrm);
+    const data=res.ok?await res.json():null;
+    if(data?.routes?.length){
+      const r=data.routes[0];
+      distKm=r.distance/1000;
+      coords=r.geometry.coordinates.map(c=>[c[1],c[0]]);
+    }
+  }catch(e){}
+  if(!distKm){
+    distKm=haversineKm(aCoord,bCoord);
+    coords=[[aCoord.lat,aCoord.lon],[bCoord.lat,bCoord.lon]];
+    dashed=true;
+  }
+
+  if(routeLine) map.removeLayer(routeLine);
+  routeLine=L.polyline(coords,{color:"blue",weight:5,opacity:.85,dashArray:dashed?"8 8":null}).addTo(map);
+  map.fitBounds(routeLine.getBounds(),{padding:[40,40]});
+}
+
+/*** LAYERS ***/
 function updateLayers(){
-  if(routeLine){map.removeLayer(routeLine);routeLine=null}
-  map.closePopup(); selectedPoints=[];
-  if(searchMarker){map.removeLayer(searchMarker);searchMarker=null}
-
   const selected=getSelectedCountries(), noCountry=(selected.length===1&&selected[0]==="all");
-  const en=chkEnPlus.checked, din=chkDINplus.checked, sure=chkSURE.checked, cpp=chkCPP.checked, ohne=chkOhneZert.checked;
   const gr=chkGruen.checked, or=chkOrange.checked, ro=chkRot.checked, ga=chkGrau.checked;
-
-  const wantF = isPellets() ? chkSackFireflies.checked : false;
-  const want15 = isPellets() ? chkSack15kg.checked : false;
-  const useSack = isPellets() && (wantF || want15);
 
   const showPelletK = isPellets() ? chkKunden.checked : false;
   const showPelletSK = isPellets() ? chkSackKunden.checked : false;
@@ -700,24 +565,7 @@ function updateLayers(){
     if(m.type==="sonstige"){ if(showPelletS) map.addLayer(m.marker); continue; }
     if(m.type==="streukunde"){ if(showStreuK) map.addLayer(m.marker); continue; }
 
-    if(useSack){
-      const s=lc(m.sack).replace(/\s+/g," ");
-      const hasF=s.includes("fireflies"), has15=s.includes("15 kg")||s.includes("15kg");
-      if(wantF && !want15 && !hasF) continue;
-      if(want15 && !wantF && !has15) continue;
-      if(wantF && want15 && !(hasF||has15)) continue;
-    }
-
-    const z=lc(m.zert);
-    let zertOK=false;
-    if(z.includes("enplus")&&en) zertOK=true;
-    if(z.includes("dinplus")&&din) zertOK=true;
-    if(z.includes("sure")&&sure) zertOK=true;
-    if(z.includes("cpp")&&cpp) zertOK=true;
-    if(!z&&ohne) zertOK=true;
-    if(!zertOK) continue;
-
-    const farbe = (isPellets() && useSack) ? m.farbeSack : m.farbeWerk;
+    const farbe = (isPellets() && sackAktiv()) ? m.farbeSack : m.farbeWerk;
     const ok=(farbe==="green"&&gr)||(farbe==="orange"&&or)||(farbe==="red"&&ro)||(farbe==="#9e9e9e"&&ga);
     if(!ok) continue;
 
@@ -726,7 +574,7 @@ function updateLayers(){
   }
 }
 
-/*** ===== UNIT UI ===== */
+/*** UNIT UI ***/
 function applyUnitUIOnly(){
   if(isPellets()){
     certTitle.textContent = "Zertifikate & Sackware";
@@ -743,7 +591,7 @@ function applyUnitUIOnly(){
   }
 }
 
-/*** ===== UNIT SWITCH ===== */
+/*** SWITCH UNIT ***/
 async function switchUnit(newUnit){
   currentUnit = newUnit;
   applyUnitUIOnly();
@@ -752,13 +600,11 @@ async function switchUnit(newUnit){
   kunden = await loadKundenForUnit(currentUnit);
 
   dbg(`Nach Load: werke=${werke.length} kunden=${kunden.length}`, true);
-
   await buildMap();
 }
-
 unitSelect.addEventListener("change", async ()=>{ await switchUnit(unitSelect.value); });
 
-/*** ===== EVENTS ===== */
+/*** EVENTS ***/
 document.addEventListener("change",e=>{
   if(e.target?.matches('input[type="checkbox"]')){
     if(e.target.classList.contains("countryChk")){
@@ -775,7 +621,7 @@ document.addEventListener("click",e=>{if(!countryDropdown.contains(e.target)) co
 map.on("click", ()=>clearRoute());
 document.addEventListener("keydown",(e)=>{ if(e.key==="Escape") clearRoute(); });
 
-/*** ===== SEARCH ===== */
+/*** SEARCH ***/
 searchInput.addEventListener("keydown",async e=>{
   if(e.key!=="Enter") return;
   const raw=e.target.value.trim(); if(!raw) return;
@@ -795,7 +641,6 @@ searchInput.addEventListener("keydown",async e=>{
     if(i===0) m.marker.openTooltip?.();
   });
 
-  // zusätzlich: Suche als "Ort" nur, wenn im Cache vorhanden
   const c = await getCoordForAddress(raw);
   if(c){
     const ll=[c.lat,c.lon];
@@ -807,13 +652,12 @@ searchInput.addEventListener("keydown",async e=>{
   else alert("Kein Treffer gefunden.");
 });
 
-/*** ===== INIT ===== */
+/*** INIT ***/
 (async()=>{
+  dbg("Init…", true);
   updateCountryButtonLabel();
   applyUnitUIOnly();
-  dbg("Init…", true);
-
-  await loadGeoJson();          // <-- lädt geocache.json zuerst
+  await loadGeoJson();
   await switchUnit(unitSelect.value);
 })();
 </script>
