@@ -135,10 +135,11 @@ const sheetIdKunden = "1fK_rO1b2eI4sOvUKOufVgmd2lQ85KazPf5Kfm4Iia5I";
 
 const STREUSALZ_SHEET_NAME = "streusalz";
 
-const sheetUrlFirmenPellets   = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/export?format=csv&gid=0`;
-const sheetUrlFirmenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
+/* ✅ FIX: überall gviz/tq out:csv nutzen (stabiler als export?format=csv) */
+const sheetUrlFirmenPellets   = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&gid=0`;
+const sheetUrlKundenPellets   = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/gviz/tq?tqx=out:csv&gid=0`;
 
-const sheetUrlKundenPellets   = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/export?format=csv&gid=0`;
+const sheetUrlFirmenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 const sheetUrlKundenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 
 /*** ====== MAP ====== ***/
@@ -331,7 +332,12 @@ async function loadWerkeForUnit(unit){
 
   const data = await new Promise(res=>Papa.parse(url,{
     download:true, header:false, skipEmptyLines:true,
-    complete:r=>{ try{ res(normalizePreise(parseFirmenArray(r.data||[]))) }catch(e){ res([]) } }
+    complete:r=>{
+      console.log("FIRMEN CSV OK:", url, "rows:", (r.data||[]).length, "errors:", r.errors);
+      try{ res(normalizePreise(parseFirmenArray(r.data||[]))) }
+      catch(e){ console.error("FIRMEN PARSE ERROR:", e); res([]) }
+    },
+    error: err => { console.error("FIRMEN CSV FAIL:", url, err); res([]); }
   }));
 
   if(unit==="pellets") werkePellets = data;
@@ -347,7 +353,12 @@ async function loadKundenForUnit(unit){
 
   const data = await new Promise(res=>Papa.parse(url,{
     download:true, header:true, skipEmptyLines:true,
-    complete:r=>{ try{ res(parseKunden(r.data||[])) }catch(e){ res([]) } }
+    complete:r=>{
+      console.log("KUNDEN CSV OK:", url, "rows:", (r.data||[]).length, "errors:", r.errors);
+      try{ res(parseKunden(r.data||[])) }
+      catch(e){ console.error("KUNDEN PARSE ERROR:", e); res([]) }
+    },
+    error: err => { console.error("KUNDEN CSV FAIL:", url, err); res([]); }
   }));
 
   if(unit==="pellets") kundenPellets = data;
