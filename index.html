@@ -46,11 +46,27 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 .ctxbox .topbar{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .ctxbox .xbtn{border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;padding:2px 8px; line-height:1.6;}
 .hidden{display:none!important}
+
+/* Debug Box */
+.debugbox{
+  position:absolute;left:12px;top:12px;z-index:9999;
+  background:#111;color:#fff;font:12px/1.3 system-ui,Arial;
+  padding:10px 12px;border-radius:12px;max-width:520px;
+  box-shadow:0 10px 24px rgba(0,0,0,.25);
+  opacity:.92
+}
+.debugbox b{display:block;margin-bottom:6px}
+.debugbox .ok{color:#76ff7a}
+.debugbox .bad{color:#ff6b6b}
+.debugbox .muted{opacity:.8}
+.debugbox textarea{width:100%;height:130px;resize:vertical;margin-top:8px;border-radius:10px;border:1px solid #333;background:#0b0b0b;color:#fff;padding:8px;box-sizing:border-box;font:12px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+.debugbox button{margin-top:8px;background:#fff;border:none;border-radius:10px;padding:6px 10px;cursor:pointer;font-weight:600}
 </style>
 </head>
 
 <body>
 <div id="map"></div>
+<div class="debugbox" id="dbg"><b>Debug</b><div class="muted">Start…</div></div>
 
 <!-- Suche + Länder + Unit -->
 <div class="box search">
@@ -115,14 +131,12 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
   <label><input type="checkbox" id="chkRot" checked> 🔴 ≥ 285 €</label><br>
   <label><input type="checkbox" id="chkGrau" checked> ⚪ kein Preis</label><br>
 
-  <!-- Pellets: NUR Typen (kein "Kunden anzeigen") -->
   <div id="kundenFilterPellets">
     <label><input type="checkbox" id="chkKunden" checked> 🔷 Pellethändler</label><br>
     <label><input type="checkbox" id="chkSackKunden" checked> 🟣 Sackwaren Händler</label><br>
     <label><input type="checkbox" id="chkSonstigeKunden" checked> 🔶 Sonstige Kunden</label>
   </div>
 
-  <!-- Streusalz: NUR "Kunden" -->
   <div id="kundenFilterStreusalz" class="hidden">
     <label><input type="checkbox" id="chkKundenStreusalz" checked> 👤 Kunden</label>
   </div>
@@ -132,14 +146,24 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 /*** ====== SHEETS (DEINE IDS) ====== ***/
 const sheetIdFirmen = "1fNUc0LJqBXxJdW1JRDfYxYORMuqeks_bHqp7zUq5Zmk";
 const sheetIdKunden = "1fK_rO1b2eI4sOvUKOufVgmd2lQ85KazPf5Kfm4Iia5I";
-
 const STREUSALZ_SHEET_NAME = "streusalz";
 
 const sheetUrlFirmenPellets   = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/export?format=csv&gid=0`;
 const sheetUrlFirmenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
-
 const sheetUrlKundenPellets   = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/export?format=csv&gid=0`;
 const sheetUrlKundenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
+
+/*** ===== Debug ===== */
+const dbgEl = document.getElementById("dbg");
+function dbg(msg, ok=true){
+  if(!dbgEl) return;
+  const line = document.createElement("div");
+  line.className = ok ? "ok" : "bad";
+  line.textContent = msg;
+  dbgEl.appendChild(line);
+}
+window.addEventListener("error", (e)=>dbg("JS ERROR: "+(e.message||"unknown"), false));
+window.addEventListener("unhandledrejection", (e)=>dbg("PROMISE ERROR: "+(e.reason?.message||e.reason||"unknown"), false));
 
 /*** ====== MAP ====== ***/
 const map=L.map("map").setView([51,11],5);
@@ -180,13 +204,16 @@ const chkKundenStreusalz = document.getElementById("chkKundenStreusalz");
 
 /*** ====== STATE / HELPERS ====== ***/
 let currentUnit = unitSelect.value;
+let buildToken = 0;
 
-// ✅ Cache + schnell laden
-const geoCache=JSON.parse(localStorage.getItem("geoCachePellets_EU")||"{}");
-const saveGeo=()=>localStorage.setItem("geoCachePellets_EU",JSON.stringify(geoCache));
+/*** ✅ Caches: localStorage + optional geocache.json ***/
+const LOCAL_CACHE_KEY = "geoCachePellets_EU_v2";
+const geoCacheLocal = JSON.parse(localStorage.getItem(LOCAL_CACHE_KEY) || "{}");
+const saveGeoLocal = ()=>localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(geoCacheLocal));
+let geoCacheFile = {}; // aus geocache.json
+const GEOCACHE_URL = "./geocache.json";
 
-let buildToken = 0; // ✅ verhindert "parallel build" Chaos
-
+/*** Utils ***/
 const num=v=>{v=String(v??"").trim().replace(",",".");v=v.replace(/€/g,"").trim();const n=+v;return isFinite(n)?n:NaN};
 const lc=s=>String(s??"").toLowerCase().trim();
 const str=v=>String(v??"").trim();
@@ -201,15 +228,35 @@ function colorForPrice(p,kein){
   return "red";
 }
 
-// ✅ Geocode mit Cache (schnell!)
-async function geocodeCached(q){
-  if(!q) return null;
-  if(geoCache[q]?.country_code) return geoCache[q];
+/*** ✅ Normalisiere Adress-Key, damit Cache stabil ist ***/
+function normKey(s){
+  return lc(s)
+    .replace(/[.,]/g," ")
+    .replace(/\s+/g," ")
+    .replace(/ß/g,"ss")
+    .trim();
+}
+function getCachedCoord(ort){
+  const k = normKey(ort);
+  return geoCacheLocal[k] || geoCacheFile[k] || null;
+}
+function setCachedCoord(ort, coord){
+  const k = normKey(ort);
+  geoCacheLocal[k] = coord;
+  saveGeoLocal();
+}
 
-  const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&limit=1&accept-language=de`);
-  const d=await r.json(); if(!d.length) return null;
-  const a=d[0].address||{}, o={lat:+d[0].lat,lon:+d[0].lon,country:a.country||"",country_code:(a.country_code||"").toLowerCase()};
-  geoCache[q]=o; saveGeo(); return o;
+/*** ✅ Geocode NUR noch für EINZEL-SUCHE (nicht fürs Bulk-Laden!) ***/
+async function geocodeOne(q){
+  try{
+    const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&limit=1&accept-language=de`);
+    if(!r.ok) return null;
+    const d=await r.json(); if(!d.length) return null;
+    const a=d[0].address||{};
+    return {lat:+d[0].lat, lon:+d[0].lon, country:a.country||"", country_code:(a.country_code||"").toLowerCase()};
+  }catch(e){
+    return null;
+  }
 }
 
 const tri=(fill)=>L.divIcon({
@@ -222,7 +269,6 @@ const iconBlue=tri("blue"), iconPurple=tri("purple"), iconOrange=tri("orange");
 /*** ====== DATA CACHES ====== ***/
 let werkePellets=null, werkeStreusalz=null, werke=[];
 let kundenPellets=null, kundenStreusalz=null, kunden=[];
-
 let alleMarker=[], selectedPoints=[], routeLine=null, searchMarker=null;
 let ctxEl=null, ctxCustomer=null, matchMarkers=[];
 
@@ -252,6 +298,7 @@ function findIndex(headers, cands){
   return hs.findIndex(h=>cs.includes(h));
 }
 
+/*** ✅ Firmen: unterstützt optional Lat/Lon Spalten (falls du sie später einfügst) ***/
 function parseFirmenArray(table){
   if(!table || table.length<2) return [];
   const headers=(table[0]||[]).map(x=>str(x));
@@ -267,6 +314,12 @@ function parseFirmenArray(table){
   let zertIdx = findIndex(headers, ["zertifikat","zertifikate","zert","cert"]); if(zertIdx<0) zertIdx = -1;
   let sackTxtIdx = findIndex(headers, ["sackware","sack","bag","bagged"]); if(sackTxtIdx<0) sackTxtIdx = -1;
 
+  // Optional Lat/Lon (Header oder R/S)
+  let latIdx = findIndex(headers, ["lat","latitude","breite"]);
+  let lonIdx = findIndex(headers, ["lon","lng","longitude","laenge"]);
+  if(latIdx<0) latIdx = 17; // R
+  if(lonIdx<0) lonIdx = 18; // S
+
   return rows
     .filter(r=>str(r[nameIdx]) && str(r[ortIdx]))
     .map(r=>{
@@ -279,26 +332,34 @@ function parseFirmenArray(table){
         preisSack: ps,
         zert: zertIdx>=0 ? str(r[zertIdx]) : "",
         sack: sackTxtIdx>=0 ? str(r[sackTxtIdx]) : "",
+        lat: num(r[latIdx]),
+        lon: num(r[lonIdx]),
         _preisOrig: p,
         _preisSackOrig: ps
       };
     });
 }
 
+/*** ✅ Kunden: optional lat/lon Spalten (Header) ***/
 function parseKunden(rows){
-  const keys=Object.keys(rows[0]||{}),
-    nameKey=(keys.find(k=>["name","kunde","kundenname"].includes(lc(k)))||keys[0]),
-    ortKey=(keys.find(k=>["ort","adresse","standort","anschrift","stadt","location"].includes(lc(k)))||keys[1]),
-    loseKey=(keys.find(k=>lc(k)==="lose")||"lose"),
-    sackKey=(keys.find(k=>lc(k)==="sackware")||"sackware"),
-    sonstKey=(keys.find(k=>lc(k)==="sonstige")||"sonstige");
+  const keys=Object.keys(rows[0]||{});
+  const nameKey=(keys.find(k=>["name","kunde","kundenname"].includes(lc(k)))||keys[0]);
+  const ortKey=(keys.find(k=>["ort","adresse","standort","anschrift","stadt","location"].includes(lc(k)))||keys[1]);
+  const loseKey=(keys.find(k=>lc(k)==="lose")||"lose");
+  const sackKey=(keys.find(k=>lc(k)==="sackware")||"sackware");
+  const sonstKey=(keys.find(k=>lc(k)==="sonstige")||"sonstige");
+
+  const latKey = keys.find(k=>["lat","latitude","breite"].includes(lc(k)));
+  const lonKey = keys.find(k=>["lon","lng","longitude","laenge"].includes(lc(k)));
 
   return rows.map(x=>({
     name:str(x[nameKey]),
     ort:str(x[ortKey]),
     lose:lc(x[loseKey]),
     sackware:lc(x[sackKey]),
-    sonstige:lc(x[sonstKey])
+    sonstige:lc(x[sonstKey]),
+    lat: latKey ? num(x[latKey]) : NaN,
+    lon: lonKey ? num(x[lonKey]) : NaN
   })).filter(x=>x.name&&x.ort);
 }
 
@@ -312,7 +373,6 @@ function normalizePreise(d){
     x.keinPreisWerk = !(isFinite(x._preisOrig) && x._preisOrig>0);
     x.keinPreisSack = !(isFinite(x._preisSackOrig) && x._preisSackOrig>0);
 
-    // Für Darstellung darf Durchschnitt gesetzt werden
     if(x.keinPreisWerk) x.preis = avgW;
     if(x.keinPreisSack) x.preisSack = avgS;
 
@@ -380,26 +440,40 @@ function tooltipFirma(m){
   return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${z}${s}`;
 }
 
-/*** ====== BUILD MAP (mit buildToken) ====== ***/
+/*** ✅ Koordinaten holen: 1) lat/lon aus Sheet 2) geocache/localStorage 3) sonst NULL (kein Bulk-Geocode!) ***/
+function coordForOrtOrNull(item){
+  // 1) direkt lat/lon
+  if(isFinite(item.lat) && isFinite(item.lon) && item.lat!==0 && item.lon!==0){
+    return {lat:item.lat, lon:item.lon, country_code:""};
+  }
+  // 2) cache
+  const c = getCachedCoord(item.ort);
+  if(c && isFinite(c.lat) && isFinite(c.lon)) return c;
+  return null;
+}
+
+/*** ====== BUILD MAP (stabil) ====== ***/
 async function buildMap(){
-  const myToken = ++buildToken; // ✅ neuer Build startet
-  // alte Marker weg
+  const myToken = ++buildToken;
+
   for(const m of alleMarker){ try{ map.removeLayer(m.marker); }catch(e){} }
   alleMarker=[];
   if(searchMarker){ try{ map.removeLayer(searchMarker);}catch(e){} searchMarker=null; }
 
   const bounds=L.latLngBounds();
+  const missing = [];
 
   // Firmen
   for(const w of werke){
-    if(myToken !== buildToken) return; // ✅ abgebrochen, weil neuer Build gestartet
-    const c=geoCache[w.ort]?.country_code?geoCache[w.ort]:await geocodeCached(w.ort);
-    if(!c) continue;
+    if(myToken !== buildToken) return;
+
+    const c = coordForOrtOrNull(w);
+    if(!c){ missing.push(w.ort); continue; }
 
     const farbe = (isPellets() && sackAktiv()) ? w.farbeSack : w.farbeWerk;
     const cm=L.circleMarker([c.lat,c.lon],{radius:8,color:farbe,fillColor:farbe,fillOpacity:.85})
       .bindTooltip("",{sticky:true})
-      .on("tooltipopen",()=>cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code})))
+      .on("tooltipopen",()=>cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code||""})))
       .on("click",()=>pickPoint(w.firma,{lat:c.lat,lon:c.lon}));
 
     alleMarker.push({type:"firma",marker:cm,...w,country_code:c.country_code||"", _coord:{lat:c.lat,lon:c.lon}});
@@ -409,10 +483,10 @@ async function buildMap(){
   // Kunden
   for(const k of kunden){
     if(myToken !== buildToken) return;
-    const c=geoCache[k.ort]?.country_code?geoCache[k.ort]:await geocodeCached(k.ort);
-    if(!c) continue;
 
-    // Pellets: Typen
+    const c = coordForOrtOrNull(k);
+    if(!c){ missing.push(k.ort); continue; }
+
     let type="kunde", icon=iconBlue;
     if(isPellets()){
       const isSackOnly=(k.sackware==="ja")&&(k.lose!=="ja");
@@ -420,7 +494,6 @@ async function buildMap(){
       type=isSonstige?"sonstige":isSackOnly?"sackkunde":"kunde";
       icon=isSonstige?iconOrange:isSackOnly?iconPurple:iconBlue;
     }else{
-      // Streusalz: nur "kunden"
       type="streukunde";
       icon=iconBlue;
     }
@@ -439,13 +512,30 @@ async function buildMap(){
 
   if(bounds.isValid()) map.fitBounds(bounds.pad(.15));
   updateLayers();
+
+  // Debug Missing Liste
+  const uniqMissing = [...new Set(missing.map(s=>str(s)).filter(Boolean))];
+  dbg(`Marker gebaut: ${alleMarker.length} | Fehlende Orte: ${uniqMissing.length}`, uniqMissing.length===0);
+
+  if(uniqMissing.length){
+    const ta = document.createElement("textarea");
+    ta.value = uniqMissing.join("\n");
+    const btn = document.createElement("button");
+    btn.textContent = "Kopieren";
+    btn.onclick = async ()=>{
+      try{ await navigator.clipboard.writeText(ta.value); btn.textContent="Kopiert ✓"; setTimeout(()=>btn.textContent="Kopieren",1200); }catch(e){}
+    };
+    dbgEl.appendChild(ta);
+    dbgEl.appendChild(btn);
+  }
 }
 
 /*** ===== ROUTE / PRICE ===== */
 function luftlinieKm(a,b){
   const R=6371,toRad=x=>x*Math.PI/180, dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon), la1=toRad(a.lat), la2=toRad(b.lat);
-  const h=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
-  return 2*R*Math.atan2(Math.sqrt(h),Math.sqrt(1-h));
+  const h=Math.sin(dLat/2)**2+Math.cos(la1)*la2?0:0;
+  const hh=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+  return 2*R*Math.atan2(Math.sqrt(hh),Math.sqrt(1-hh));
 }
 async function osrmDistKm(a,b){
   const url=`https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=false`;
@@ -454,8 +544,6 @@ async function osrmDistKm(a,b){
   if(data?.routes?.length) return data.routes[0].distance/1000;
   return null;
 }
-
-// ✅ Marge: Pellets 5%, Streusalz 20%
 function calcDeliveredPrice(distKm, basePrice){
   const preisProKm = distKm < 250 ? 2.15 : 1.85;
   const berechnung = (distKm/24) * preisProKm;
@@ -463,7 +551,6 @@ function calcDeliveredPrice(distKm, basePrice){
   const total = (berechnung + (basePrice||0)) * margeFaktor;
   return { total, preisProKm, margeFaktor };
 }
-
 async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
   const osrm=`https://router.project-osrm.org/route/v1/driving/${aCoord.lon},${aCoord.lat};${bCoord.lon},${bCoord.lat}?overview=full&geometries=geojson`;
   let distKm=null, coords=null, dashed=false, durStr="";
@@ -493,7 +580,6 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
   if(routeLine) map.removeLayer(routeLine);
   routeLine=L.polyline(coords,{color:"blue",weight:5,opacity:.85,dashArray:dashed?"8 8":null}).addTo(map);
   const mid=coords[Math.floor(coords.length/2)];
-
   const margeTxt = (margeFaktor===1.20) ? "20%" : "5%";
 
   L.popup().setLatLng(mid).setContent(`
@@ -582,7 +668,7 @@ async function runTargetSearch(type, targetPrice){
     .map(m => {
       const isSack = isPellets() && (type === "sack");
       const hasReal = isSack ? !m.keinPreisSack : !m.keinPreisWerk;
-      const base = isSack ? m._preisSackOrig : m._preisOrig; // nur echte Preise
+      const base = isSack ? m._preisSackOrig : m._preisOrig;
       return { ...m, base, hasReal };
     })
     .filter(m => m.hasReal && isFinite(m.base) && m.base>0);
@@ -634,6 +720,10 @@ async function runTargetSearch(type, targetPrice){
 }
 
 /*** ===== LAYERS ===== */
+function getSelectedCountries(){
+  const s=[...document.querySelectorAll(".countryChk")].filter(c=>c.checked).map(c=>c.value);
+  return (!s.length||s.includes("all"))?["all"]:s;
+}
 function updateLayers(){
   if(routeLine){map.removeLayer(routeLine);routeLine=null}
   map.closePopup(); selectedPoints=[];
@@ -647,25 +737,22 @@ function updateLayers(){
   const want15 = isPellets() ? chkSack15kg.checked : false;
   const useSack = isPellets() && (wantF || want15);
 
-  // Kundenfilter:
   const showPelletK = isPellets() ? chkKunden.checked : false;
   const showPelletSK = isPellets() ? chkSackKunden.checked : false;
   const showPelletS = isPellets() ? chkSonstigeKunden.checked : false;
-
   const showStreuK = !isPellets() ? chkKundenStreusalz.checked : false;
 
   for(const m of alleMarker){
     if(map.hasLayer(m.marker)) map.removeLayer(m.marker);
 
-    if(!noCountry && (!m.country_code || !selected.includes(m.country_code))) continue;
+    // ✅ Country-Filter nur anwenden, wenn wir auch wirklich einen Ländercode haben
+    if(!noCountry && m.country_code && !selected.includes(m.country_code)) continue;
 
-    // Kunden
     if(m.type==="kunde"){ if(showPelletK) map.addLayer(m.marker); continue; }
     if(m.type==="sackkunde"){ if(showPelletSK) map.addLayer(m.marker); continue; }
     if(m.type==="sonstige"){ if(showPelletS) map.addLayer(m.marker); continue; }
     if(m.type==="streukunde"){ if(showStreuK) map.addLayer(m.marker); continue; }
 
-    // Firmen Filter (Sackware nur bei Pellets)
     if(useSack){
       const s=lc(m.sack).replace(/\s+/g," ");
       const hasF=s.includes("fireflies"), has15=s.includes("15 kg")||s.includes("15kg");
@@ -674,7 +761,6 @@ function updateLayers(){
       if(wantF && want15 && !(hasF||has15)) continue;
     }
 
-    // Zertifikate
     const z=lc(m.zert);
     let zertOK=false;
     if(z.includes("enplus")&&en) zertOK=true;
@@ -684,7 +770,6 @@ function updateLayers(){
     if(!z&&ohne) zertOK=true;
     if(!zertOK) continue;
 
-    // Farben
     const farbe = (isPellets() && useSack) ? m.farbeSack : m.farbeWerk;
     const ok=(farbe==="green"&&gr)||(farbe==="orange"&&or)||(farbe==="red"&&ro)||(farbe==="#9e9e9e"&&ga);
     if(!ok) continue;
@@ -734,7 +819,6 @@ async function switchUnit(newUnit){
 
   await buildMap();
 }
-
 unitSelect.addEventListener("change", async ()=>{ await switchUnit(unitSelect.value); });
 
 /*** ===== EVENTS ===== */
@@ -770,7 +854,7 @@ document.addEventListener("change",e=>{
 countryDropdownBtn.addEventListener("click",()=>countryDropdownMenu.style.display=(countryDropdownMenu.style.display==="block"?"none":"block"));
 document.addEventListener("click",e=>{if(!countryDropdown.contains(e.target)) countryDropdownMenu.style.display="none"});
 
-/*** ===== SEARCH ===== */
+/*** ===== SEARCH (Einzel-Geocode ok) ===== */
 searchInput.addEventListener("keydown",async e=>{
   if(e.key!=="Enter") return;
   const raw=e.target.value.trim(); if(!raw) return;
@@ -792,8 +876,10 @@ searchInput.addEventListener("keydown",async e=>{
     if(i===0) m.marker.openTooltip?.();
   });
 
-  const geo=await geocodeCached(raw);
+  // ✅ Einzel-Geocode für Suche (und im Cache speichern)
+  let geo = getCachedCoord(raw) || await geocodeOne(raw);
   if(geo){
+    setCachedCoord(raw, geo);
     const ll=[geo.lat,geo.lon];
     const coordObj = {lat: geo.lat, lon: geo.lon};
 
@@ -813,9 +899,25 @@ searchInput.addEventListener("keydown",async e=>{
 });
 
 /*** ===== INIT ===== */
+async function loadGeoCacheJson(){
+  try{
+    dbg("Lade geocache.json …");
+    const r = await fetch(GEOCACHE_URL, {cache:"no-store"});
+    if(!r.ok){ dbg(`geocache.json FEHLT (HTTP ${r.status})`, false); geoCacheFile={}; return; }
+    const j = await r.json();
+    geoCacheFile = (j && typeof j==="object") ? j : {};
+    dbg(`geocache.json OK: ${Object.keys(geoCacheFile).length} Einträge`, true);
+  }catch(e){
+    dbg("geocache.json ERROR: "+(e.message||"unknown"), false);
+    geoCacheFile = {};
+  }
+}
+
 (async()=>{
   updateCountryButtonLabel();
   applyUnitUIOnly();
+  await loadGeoCacheJson();
+  dbg("Init…", true);
   await switchUnit(unitSelect.value);
 })();
 </script>
