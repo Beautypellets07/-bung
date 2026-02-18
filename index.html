@@ -46,6 +46,12 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 .ctxbox .topbar{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .ctxbox .xbtn{border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;padding:2px 8px; line-height:1.6;}
 .hidden{display:none!important}
+
+/* kleine buttons im leaflet popup */
+.btnRow{display:flex;gap:8px;margin-top:8px}
+.btn{border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;padding:6px 10px}
+.btn:hover{background:#fafafa}
+.small{font-size:12px;opacity:.75}
 </style>
 </head>
 
@@ -132,7 +138,6 @@ const sheetIdFirmen = "1fNUc0LJqBXxJdW1JRDfYxYORMuqeks_bHqp7zUq5Zmk";
 const sheetIdKunden = "1fK_rO1b2eI4sOvUKOufVgmd2lQ85KazPf5Kfm4Iia5I";
 const STREUSALZ_SHEET_NAME = "streusalz";
 
-// ✅ robust: export?format=csv (funktioniert oft stabiler als gviz bei manchen Freigaben)
 const sheetUrlFirmenPellets   = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/export?format=csv&gid=0`;
 const sheetUrlKundenPellets   = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/export?format=csv&gid=0`;
 
@@ -193,12 +198,116 @@ function colorForPrice(p,kein){
   return "red";
 }
 
-/*** ====== GEO CACHE (3 Quellen) ======
-  1) geocache.json (optional)
-  2) localStorage geoCachePellets_EU
-  3) KEIN Bulk-Nominatim (nur Suche)
-*/
-let fileGeoCache = {}; // aus geocache.json
+/*** ====== MANUELLE PREISE (pro Firma + Unit + Lose/Sack) ====== ***/
+const MANUAL_KEY = "manualPrices_EU_v1";
+let manualPrices = JSON.parse(localStorage.getItem(MANUAL_KEY) || "{}");
+const saveManual = ()=>localStorage.setItem(MANUAL_KEY, JSON.stringify(manualPrices));
+
+function priceTypeKey(){
+  // sackAktiv = du bist gerade im Sack-Modus (Fireflies oder 15kg aktiviert)
+  // in Streusalz gibt es nur "lose"
+  if(!isPellets()) return "lose";
+  return sackAktiv() ? "sack" : "lose";
+}
+function manualKeyForFirm(firma){
+  return `${currentUnit}|${priceTypeKey()}|${str(firma)}`;
+}
+function getManualPriceForFirm(firma){
+  const k = manualKeyForFirm(firma);
+  const v = manualPrices[k];
+  return (isFinite(+v) && +v>0) ? +v : null;
+}
+function setManualPriceForFirm(firma, value){
+  const k = manualKeyForFirm(firma);
+  if(!isFinite(value) || value<=0){
+    delete manualPrices[k];
+  }else{
+    manualPrices[k] = value;
+  }
+  saveManual();
+}
+
+// wird genutzt von Popup-Buttons
+let activeFirmForPricePopup = null;
+window.saveManualFirmPrice = function(){
+  if(!activeFirmForPricePopup) return;
+  const inp = document.getElementById("manualFirmPriceInput");
+  const raw = inp ? inp.value : "";
+  const v = num(raw);
+  if(!isFinite(v) || v<=0){
+    alert("Bitte gültigen Preis eingeben.");
+    return;
+  }
+  setManualPriceForFirm(activeFirmForPricePopup, v);
+  map.closePopup();
+  updateLayers(); // nicht zwingend, aber praktisch (Tooltip zeigt dann manuell)
+};
+window.clearManualFirmPrice = function(){
+  if(!activeFirmForPricePopup) return;
+  setManualPriceForFirm(activeFirmForPricePopup, NaN);
+  map.closePopup();
+  updateLayers();
+};
+window.pickFirmFromPopup = function(){
+  if(!activeFirmForPricePopup || !activeFirmCoordForPricePopup) return;
+  map.closePopup();
+  pickPoint(activeFirmForPricePopup, activeFirmCoordForPricePopup);
+};
+let activeFirmCoordForPricePopup = null;
+
+function openFirmPricePopup(firmObj, coord, latlng){
+  // nur Firmen!
+  activeFirmForPricePopup = firmObj.firma;
+  activeFirmCoordForPricePopup = coord;
+
+  const isSack = isPellets() && (priceTypeKey()==="sack");
+  const baseOrig = isSack ? firmObj._preisSackOrig : firmObj._preisOrig;
+  const baseTxt = (isFinite(baseOrig) && baseOrig>0) ? baseOrig.toFixed(2) : "–";
+
+  const manual = getManualPriceForFirm(firmObj.firma);
+  const manualTxt = manual ? manual.toFixed(2) : "";
+
+  const label = !isPellets() ? "Werkspreis (Streusalz)" : (isSack ? "Sackware-Preis" : "Werkspreis (Lose)");
+
+  const html = `
+    <div style="min-width:240px">
+      <b>${firmObj.firma}</b><br>
+      <div class="small">${firmObj.ort}</div>
+      <div style="margin-top:6px" class="small"><b>Aktueller ${label}:</b> ${baseTxt} €</div>
+
+      <div style="margin-top:10px"><b>Preis manuell setzen</b></div>
+      <input id="manualFirmPriceInput" type="number" step="0.01" placeholder="€/t" value="${manualTxt}"
+             style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;outline:none">
+
+      <div class="btnRow">
+        <button class="btn" onclick="saveManualFirmPrice()">Speichern</button>
+        <button class="btn" onclick="clearManualFirmPrice()">Löschen</button>
+      </div>
+
+      <div class="btnRow">
+        <button class="btn" onclick="pickFirmFromPopup()">Als Punkt wählen</button>
+      </div>
+
+      <div class="small" style="margin-top:8px">
+        Tipp: <b>Mausrad-Klick</b> auf Firma wählt direkt als Punkt (ohne Popup).
+      </div>
+    </div>
+  `;
+
+  L.popup({closeButton:true, autoPan:true})
+    .setLatLng(latlng)
+    .setContent(html)
+    .openOn(map);
+
+  // fokus input
+  setTimeout(()=>{
+    const el=document.getElementById("manualFirmPriceInput");
+    if(el) el.focus();
+  }, 0);
+}
+
+/*** ====== GEO CACHE (3 Quellen) ====== ***/
+let fileGeoCache = {};
 const geoCache = JSON.parse(localStorage.getItem("geoCachePellets_EU")||"{}");
 const saveGeo=()=>localStorage.setItem("geoCachePellets_EU",JSON.stringify(geoCache));
 
@@ -219,34 +328,26 @@ async function loadGeoCacheFile(){
     fileGeoCache = {};
   }
 }
-
 function getCoordForPlace(place){
   const key = str(place);
   if(!key) return null;
 
-  // 1) file
   const a = fileGeoCache[key];
   if(a && isFinite(+a.lat) && isFinite(+a.lon)){
     return {lat:+a.lat, lon:+a.lon, country_code: (a.country_code||"").toLowerCase()};
   }
-
-  // 2) localStorage
   const b = geoCache[key];
   if(b && isFinite(+b.lat) && isFinite(+b.lon)){
     return {lat:+b.lat, lon:+b.lon, country_code: (b.country_code||"").toLowerCase()};
   }
-
   return null;
 }
-
-// ✅ Nominatim nur für Suche (1 Treffer)
 async function geocodeOnce(q){
   try{
     const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&limit=1&accept-language=de`);
     const d=await r.json(); if(!d.length) return null;
     const addr=d[0].address||{};
     const o={lat:+d[0].lat,lon:+d[0].lon,country:addr.country||"",country_code:(addr.country_code||"").toLowerCase()};
-    // in localStorage merken
     geoCache[q]=o; saveGeo();
     return o;
   }catch(e){
@@ -293,7 +394,6 @@ function findIndex(headers, cands){
   const cs=cands.map(c=>lc(c));
   return hs.findIndex(h=>cs.includes(h));
 }
-
 function parseFirmenArray(table){
   if(!table || table.length<2) return [];
   const headers=(table[0]||[]).map(x=>str(x));
@@ -326,7 +426,6 @@ function parseFirmenArray(table){
       };
     });
 }
-
 function parseKunden(rows){
   const keys=Object.keys(rows[0]||{}),
     nameKey=(keys.find(k=>["name","kunde","kundenname"].includes(lc(k)))||keys[0]),
@@ -343,7 +442,6 @@ function parseKunden(rows){
     sonstige:lc(x[sonstKey])
   })).filter(x=>x.name&&x.ort);
 }
-
 function normalizePreise(d){
   const w=d.filter(x=>isFinite(x.preis)&&x.preis>0);
   const s=d.filter(x=>isFinite(x.preisSack)&&x.preisSack>0);
@@ -382,7 +480,6 @@ async function loadWerkeForUnit(unit){
   else werkeStreusalz = data;
   return data;
 }
-
 async function loadKundenForUnit(unit){
   if(unit==="pellets" && kundenPellets) return kundenPellets;
   if(unit==="streusalz" && kundenStreusalz) return kundenStreusalz;
@@ -417,21 +514,27 @@ function updateCountryButtonLabel(){
 /*** ====== TOOLTIP ====== ***/
 function tooltipFirma(m){
   const useSack = sackAktiv();
-  const p = (isPellets() && useSack)
-    ? (m.keinPreisSack ? NaN : m._preisSackOrig)
-    : (m.keinPreisWerk ? NaN : m._preisOrig);
+  const isSack = isPellets() && useSack;
+
+  const manual = getManualPriceForFirm(m.firma);
+
+  const p = manual ?? (
+    isSack
+      ? (m.keinPreisSack ? NaN : m._preisSackOrig)
+      : (m.keinPreisWerk ? NaN : m._preisOrig)
+  );
 
   const preisTxt = (isFinite(p)&&p>0) ? `${p.toFixed(2)} €` : "–";
+  const manTxt = manual ? `<br><span class="small"><b>Manuell:</b> ${manual.toFixed(2)} €</span>` : "";
   const z=m.zert?`<br><b>Zertifikat:</b> ${m.zert}`:"";
   const s=(isPellets() && m.sack)?`<br><b>Sackware:</b> ${m.sack}`:"";
-  return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${z}${s}`;
+  return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${manTxt}${z}${s}`;
 }
 
-/*** ====== BUILD MAP (OHNE Bulk-Geocode) ====== ***/
+/*** ====== BUILD MAP ====== ***/
 async function buildMap(){
   const myToken = ++buildToken;
 
-  // alte Marker weg
   for(const m of alleMarker){ try{ map.removeLayer(m.marker); }catch(e){} }
   alleMarker=[];
   if(searchMarker){ try{ map.removeLayer(searchMarker);}catch(e){} searchMarker=null; }
@@ -446,10 +549,22 @@ async function buildMap(){
     if(!c) continue;
 
     const farbe = (isPellets() && sackAktiv()) ? w.farbeSack : w.farbeWerk;
+
     const cm=L.circleMarker([c.lat,c.lon],{radius:8,color:farbe,fillColor:farbe,fillOpacity:.85})
       .bindTooltip("",{sticky:true})
       .on("tooltipopen",()=>cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code})))
-      .on("click",()=>pickPoint(w.firma,{lat:c.lat,lon:c.lon}));
+      // ✅ Linksklick NUR Firma: Preis-Popup öffnen
+      .on("click",(ev)=>{
+        // nur wenn wirklich linker klick
+        if(ev?.originalEvent && ev.originalEvent.button !== 0) return;
+        openFirmPricePopup(w, {lat:c.lat, lon:c.lon}, ev.latlng);
+      })
+      // ✅ Mausrad-Klick (middle) auf Firma: direkt als Punkt wählen (für Strecke)
+      .on("mousedown",(ev)=>{
+        if(ev?.originalEvent && ev.originalEvent.button === 1){
+          pickPoint(w.firma,{lat:c.lat,lon:c.lon});
+        }
+      });
 
     alleMarker.push({type:"firma",marker:cm,...w,country_code:c.country_code||"", _coord:{lat:c.lat,lon:c.lon}});
     bounds.extend([c.lat,c.lon]);
@@ -510,6 +625,21 @@ function calcDeliveredPrice(distKm, basePrice){
   const total = (berechnung + (basePrice||0)) * margeFaktor;
   return { total, preisProKm, margeFaktor };
 }
+function findFirmInLabels(aLabel,bLabel){
+  // findet das Werk-Objekt, wenn eins der Labels ein Firmenname ist
+  let f = werke.find(w=>w.firma===aLabel) || werke.find(w=>w.firma===bLabel);
+  return f || null;
+}
+function getBasePriceForFirm(firmObj){
+  if(!firmObj) return 0;
+
+  const manual = getManualPriceForFirm(firmObj.firma);
+  if(manual) return manual;
+
+  const useSack = sackAktiv();
+  const base = (isPellets() && useSack) ? firmObj.preisSack : firmObj.preis;
+  return base || 0;
+}
 async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
   const osrm=`https://router.project-osrm.org/route/v1/driving/${aCoord.lon},${aCoord.lat};${bCoord.lon},${bCoord.lat}?overview=full&geometries=geojson`;
   let distKm=null, coords=null, dashed=false, durStr="";
@@ -530,9 +660,8 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
     dashed=true;
   }
 
-  const useSack = sackAktiv();
-  const firm = werke.find(w=>w.firma===aLabel || w.firma===bLabel);
-  const base = firm ? ((isPellets() && useSack) ? firm.preisSack : firm.preis) : 0;
+  const firmObj = findFirmInLabels(aLabel,bLabel);
+  const base = getBasePriceForFirm(firmObj);
 
   const {total, preisProKm, margeFaktor} = calcDeliveredPrice(distKm, base);
 
@@ -541,14 +670,24 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
   const mid=coords[Math.floor(coords.length/2)];
   const margeTxt = (margeFaktor===1.20) ? "20%" : "5%";
 
+  const useSack = sackAktiv();
+  const baseLabel = (currentUnit==="streusalz")
+    ? "Werkspreis"
+    : ((isPellets() && useSack) ? "Sackware-Preis" : "Werkspreis");
+
+  const manualInfo = (firmObj && getManualPriceForFirm(firmObj.firma))
+    ? `<br><small>Manueller Preis aktiv für <b>${firmObj.firma}</b>.</small>`
+    : "";
+
   L.popup().setLatLng(mid).setContent(`
     <b>Route:</b> ${aLabel} ↔ ${bLabel}<br>
     <b>Entfernung:</b> ${distKm.toFixed(1)} km ${dashed?"(Luftlinie)":"(Straße)"}<br>
     ${durStr?`<b>Dauer:</b> ${durStr}<br>`:""}
     <b>Preis pro km:</b> ${preisProKm.toFixed(2)} €<br>
-    <b>${(isPellets() && useSack)?"Sackware-Preis":"Werkspreis"}:</b> ${(base||0).toFixed(2)} €<br>
+    <b>${baseLabel}:</b> ${(base||0).toFixed(2)} €<br>
     <b>Marge:</b> ${margeTxt}<br>
     <b>Gesamtkosten:</b> <span style="color:green;font-size:1.1em">${total.toFixed(2)} €</span>
+    ${manualInfo}
     ${dashed?`<br><small>Keine Straßenroute verfügbar → Luftlinie gestrichelt.</small>`:""}
   `).openOn(map);
 
@@ -616,7 +755,6 @@ function openCustomerMenu(kunde, coord, mouseEvent){
     await runTargetSearch(type, target);
   });
 }
-
 async function runTargetSearch(type, targetPrice){
   if(!ctxEl || !ctxCustomer) return;
   const resBox = ctxEl.querySelector("#ctxResults");
@@ -627,13 +765,21 @@ async function runTargetSearch(type, targetPrice){
     .map(m => {
       const isSack = isPellets() && (type === "sack");
       const hasReal = isSack ? !m.keinPreisSack : !m.keinPreisWerk;
-      const base = isSack ? m._preisSackOrig : m._preisOrig;
-      return { ...m, base, hasReal };
+
+      // ✅ wenn manueller Preis gesetzt ist, gilt er als "real"
+      const manual = (()=>{
+        const key = `${currentUnit}|${isSack?"sack":"lose"}|${str(m.firma)}`;
+        const v = manualPrices[key];
+        return (isFinite(+v) && +v>0) ? +v : null;
+      })();
+
+      const base = manual ?? (isSack ? m._preisSackOrig : m._preisOrig);
+      return { ...m, base, hasReal: (manual ? true : hasReal) };
     })
     .filter(m => m.hasReal && isFinite(m.base) && m.base>0);
 
   if(!firmsVisible.length){
-    resBox.innerHTML = `<div class="small">Keine passenden Firmen mit <b>echtem</b> Preis gefunden (Filter/Layer beachten).</div>`;
+    resBox.innerHTML = `<div class="small">Keine passenden Firmen mit Preis gefunden (Filter/Layer beachten).</div>`;
     return;
   }
 
@@ -658,7 +804,7 @@ async function runTargetSearch(type, targetPrice){
   matches.sort((a,b)=>a.total-b.total);
 
   if(!matches.length){
-    resBox.innerHTML = `<div class="small">Keine Firma unter ${targetPrice.toFixed(2)} € gefunden (nur mit echten Preisen).</div>`;
+    resBox.innerHTML = `<div class="small">Keine Firma unter ${targetPrice.toFixed(2)} € gefunden.</div>`;
     return;
   }
 
@@ -701,7 +847,6 @@ function updateLayers(){
   for(const m of alleMarker){
     if(map.hasLayer(m.marker)) map.removeLayer(m.marker);
 
-    // Country filter nur wenn country_code vorhanden ist
     if(!noCountry && m.country_code && !selected.includes(m.country_code)) continue;
 
     if(m.type==="kunde"){ if(showPelletK) map.addLayer(m.marker); continue; }
@@ -775,12 +920,15 @@ async function switchUnit(newUnit){
 
   await buildMap();
 }
-
 unitSelect.addEventListener("change", async ()=>{ await switchUnit(unitSelect.value); });
 
 /*** ===== EVENTS ===== */
 map.on("click", (e)=>{
   if(ctxEl) return;
+
+  // wenn Popup offen ist (Firma-Preis), soll click nicht sofort route clearen
+  if(map._popup) return;
+
   if(routeLine){
     const t = e.originalEvent?.target;
     if(t && (t.tagName === "path" || t.closest?.("path"))) return;
@@ -833,7 +981,6 @@ searchInput.addEventListener("keydown",async e=>{
     if(i===0) m.marker.openTooltip?.();
   });
 
-  // Ortssuche als Marker
   const geo = await geocodeOnce(raw);
   if(geo){
     const ll=[geo.lat,geo.lon];
@@ -859,7 +1006,7 @@ searchInput.addEventListener("keydown",async e=>{
   updateCountryButtonLabel();
   applyUnitUIOnly();
 
-  await loadGeoCacheFile();   // ✅ wichtig: zuerst geocache.json laden
+  await loadGeoCacheFile();
   await switchUnit(unitSelect.value);
 })();
 </script>
