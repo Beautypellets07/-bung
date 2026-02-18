@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="de">
 <head>
@@ -48,7 +47,7 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 .ctxbox .xbtn{border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;padding:2px 8px; line-height:1.6;}
 .hidden{display:none!important}
 
-/* Buttons im Popup */
+/* Buttons im Firmen-Popup */
 .btnRow{display:flex;gap:8px;margin-top:8px}
 .btn{border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;padding:6px 10px}
 .btn:hover{background:#fafafa}
@@ -241,67 +240,6 @@ function getEffectiveFirmColor(m){
   return colorForPrice(price, !hasReal);
 }
 
-/* Popup: speichern/löschen */
-let activeFirmForPricePopup = null;
-
-window.saveManualFirmPrice = function(){
-  if(!activeFirmForPricePopup) return;
-  const inp = document.getElementById("manualFirmPriceInput");
-  const v = num(inp ? inp.value : "");
-  if(!isFinite(v) || v<=0){ alert("Bitte gültigen Preis eingeben."); return; }
-  setManualPriceForFirm(activeFirmForPricePopup, v);
-  map.closePopup();
-  updateLayers();
-};
-window.clearManualFirmPrice = function(){
-  if(!activeFirmForPricePopup) return;
-  setManualPriceForFirm(activeFirmForPricePopup, NaN);
-  map.closePopup();
-  updateLayers();
-};
-
-function openFirmPricePopup(firmObj, coord, latlng){
-  activeFirmForPricePopup = firmObj.firma;
-
-  const isSack = isPellets() && sackAktiv();
-  const baseOrig = isSack ? firmObj._preisSackOrig : firmObj._preisOrig;
-  const baseTxt = (isFinite(baseOrig) && baseOrig>0) ? baseOrig.toFixed(2) : "–";
-
-  const manual = getManualPriceForFirm(firmObj.firma);
-  const manualTxt = manual ? manual.toFixed(2) : "";
-
-  const label = !isPellets()
-    ? "Werkspreis (Streusalz)"
-    : (isSack ? "Sackware-Preis" : "Werkspreis (Lose)");
-
-  const html = `
-    <div style="min-width:240px">
-      <b>${firmObj.firma}</b><br>
-      <div class="small">${firmObj.ort}</div>
-      <div style="margin-top:6px" class="small"><b>Tabellen ${label}:</b> ${baseTxt} €</div>
-
-      <div style="margin-top:10px"><b>Preis manuell setzen</b></div>
-      <input id="manualFirmPriceInput" type="number" step="0.01" placeholder="€/t" value="${manualTxt}"
-             style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;outline:none">
-
-      <div class="btnRow">
-        <button class="btn" onclick="saveManualFirmPrice()">Speichern</button>
-        <button class="btn" onclick="clearManualFirmPrice()">Löschen</button>
-      </div>
-    </div>
-  `;
-
-  L.popup({closeButton:true, autoPan:true})
-    .setLatLng(latlng)
-    .setContent(html)
-    .openOn(map);
-
-  setTimeout(()=>{
-    const el=document.getElementById("manualFirmPriceInput");
-    if(el) el.focus();
-  }, 0);
-}
-
 /*** ====== GEO CACHE (3 Quellen) ====== ***/
 let fileGeoCache = {};
 const geoCache = JSON.parse(localStorage.getItem("geoCachePellets_EU")||"{}");
@@ -331,6 +269,7 @@ function getCoordForPlace(place){
   }
   return null;
 }
+// ✅ Nominatim nur für Suche (1 Treffer)
 async function geocodeOnce(q){
   try{
     const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&limit=1&accept-language=de`);
@@ -356,7 +295,7 @@ const iconBlue=tri("blue"), iconPurple=tri("purple"), iconOrange=tri("orange");
 let werkePellets=null, werkeStreusalz=null, werke=[];
 let kundenPellets=null, kundenStreusalz=null, kunden=[];
 let alleMarker=[], selectedPoints=[], routeLine=null, searchMarker=null;
-let ctxEl=null, ctxCustomer=null, matchMarkers=[];
+let ctxEl=null, ctxCustomer=null;
 
 function closeCtx(){ if(ctxEl){ctxEl.remove(); ctxEl=null;} ctxCustomer=null; }
 function stopEvt(el){
@@ -500,6 +439,67 @@ function tooltipFirma(m){
   return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${manTxt}${z}${s}`;
 }
 
+/*** ====== FIRMA-POPUP (RECHTSKLICK) ====== ***/
+let activeFirmForPricePopup = null;
+
+window.saveManualFirmPrice = function(){
+  if(!activeFirmForPricePopup) return;
+  const inp = document.getElementById("manualFirmPriceInput");
+  const v = num(inp ? inp.value : "");
+  if(!isFinite(v) || v<=0){ alert("Bitte gültigen Preis eingeben."); return; }
+  setManualPriceForFirm(activeFirmForPricePopup, v);
+  map.closePopup();
+  updateLayers();
+};
+window.clearManualFirmPrice = function(){
+  if(!activeFirmForPricePopup) return;
+  setManualPriceForFirm(activeFirmForPricePopup, NaN);
+  map.closePopup();
+  updateLayers();
+};
+
+function openFirmPricePopup(firmObj, latlng){
+  activeFirmForPricePopup = firmObj.firma;
+
+  const isSack = isPellets() && sackAktiv();
+  const baseOrig = isSack ? firmObj._preisSackOrig : firmObj._preisOrig;
+  const baseTxt = (isFinite(baseOrig) && baseOrig>0) ? baseOrig.toFixed(2) : "–";
+
+  const manual = getManualPriceForFirm(firmObj.firma);
+  const manualTxt = manual ? manual.toFixed(2) : "";
+
+  const label = !isPellets()
+    ? "Werkspreis (Streusalz)"
+    : (isSack ? "Sackware-Preis" : "Werkspreis (Lose)");
+
+  const html = `
+    <div style="min-width:240px">
+      <b>${firmObj.firma}</b><br>
+      <div class="small">${firmObj.ort}</div>
+      <div style="margin-top:6px" class="small"><b>Tabellen ${label}:</b> ${baseTxt} €</div>
+
+      <div style="margin-top:10px"><b>Preis manuell setzen</b></div>
+      <input id="manualFirmPriceInput" type="number" step="0.01" placeholder="€/t" value="${manualTxt}"
+             style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;outline:none">
+
+      <div class="btnRow">
+        <button class="btn" onclick="saveManualFirmPrice()">Speichern</button>
+        <button class="btn" onclick="clearManualFirmPrice()">Löschen</button>
+      </div>
+    </div>
+  `;
+
+  L.popup({closeButton:true, autoPan:true})
+    .setLatLng(latlng)
+    .setContent(html)
+    .openOn(map);
+
+  setTimeout(()=>{
+    const el=document.getElementById("manualFirmPriceInput");
+    if(el) el.focus();
+  }, 0);
+}
+
 /*** ====== BUILD MAP ====== ***/
 async function buildMap(){
   const myToken = ++buildToken;
@@ -510,6 +510,7 @@ async function buildMap(){
 
   const bounds=L.latLngBounds();
 
+  // Firmen
   for(const w of werke){
     if(myToken !== buildToken) return;
     const c = getCoordForPlace(w.ort);
@@ -520,15 +521,19 @@ async function buildMap(){
     const cm=L.circleMarker([c.lat,c.lon],{radius:8,color:farbe,fillColor:farbe,fillOpacity:.85})
       .bindTooltip("",{sticky:true})
       .on("tooltipopen",()=>cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code})))
-      .on("click",(ev)=>{
-        if(ev?.originalEvent && ev.originalEvent.button !== 0) return;
-        openFirmPricePopup(w, {lat:c.lat, lon:c.lon}, ev.latlng);
+      // ✅ Linksklick = Punkt wählen (Strecke)
+      .on("click",()=>pickPoint(w.firma,{lat:c.lat,lon:c.lon}))
+      // ✅ Rechtsklick = Preis-Popup
+      .on("contextmenu",(ev)=>{
+        ev.originalEvent?.preventDefault?.();
+        openFirmPricePopup(w, ev.latlng);
       });
 
     alleMarker.push({type:"firma",marker:cm,...w,country_code:c.country_code||"", _coord:{lat:c.lat,lon:c.lon}});
     bounds.extend([c.lat,c.lon]);
   }
 
+  // Kunden
   for(const k of kunden){
     if(myToken !== buildToken) return;
     const c = getCoordForPlace(k.ort);
@@ -541,7 +546,8 @@ async function buildMap(){
       type=isSonstige?"sonstige":isSackOnly?"sackkunde":"kunde";
       icon=isSonstige?iconOrange:isSackOnly?iconPurple:iconBlue;
     }else{
-      type="streukunde"; icon=iconBlue;
+      type="streukunde";
+      icon=iconBlue;
     }
 
     const mk=L.marker([c.lat,c.lon],{icon})
@@ -585,6 +591,7 @@ function findFirmInLabels(aLabel,bLabel){
 }
 function getBasePriceForFirm(firmObj){
   if(!firmObj) return 0;
+
   const manual = getManualPriceForFirm(firmObj.firma);
   if(manual) return manual;
 
@@ -639,6 +646,21 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
   map.fitBounds(routeLine.getBounds(),{padding:[40,40]});
 }
 function showRoute(a,b){ return showRouteByCoords(a.label, a.coord, b.label, b.coord); }
+
+/*** ===== PICK / CLEAR ===== */
+function pickPoint(label,coord){
+  selectedPoints.push({label,coord});
+  if(selectedPoints.length===2){
+    const [a,b]=selectedPoints;
+    selectedPoints=[];
+    showRoute(a,b);
+  }
+}
+function clearRoute(){
+  if(routeLine){ map.removeLayer(routeLine); routeLine = null; }
+  map.closePopup();
+  selectedPoints = [];
+}
 
 /*** ===== CONTEXT MENU (Zielpreis) ===== */
 function openCustomerMenu(kunde, coord, mouseEvent){
@@ -709,11 +731,13 @@ async function runTargetSearch(type, targetPrice){
     .filter(m => m.type==="firma" && map.hasLayer(m.marker))
     .map(m => {
       const isSack = isPellets() && (type === "sack");
+
       const key = `${currentUnit}|${isSack?"sack":"lose"}|${str(m.firma)}`;
       const manual = (isFinite(+manualPrices[key]) && +manualPrices[key]>0) ? +manualPrices[key] : null;
 
       const hasReal = manual ? true : (isSack ? !m.keinPreisSack : !m.keinPreisWerk);
       const base = manual ?? (isSack ? m._preisSackOrig : m._preisOrig);
+
       return { ...m, base, hasReal };
     })
     .filter(m => m.hasReal && isFinite(m.base) && m.base>0);
@@ -724,6 +748,7 @@ async function runTargetSearch(type, targetPrice){
   }
 
   const c = ctxCustomer.coord;
+
   const pre = firmsVisible.map(f=>{
     const d0 = luftlinieKm({lat:c.lat,lon:c.lon},{lat:f._coord.lat,lon:f._coord.lon});
     return {...f, d0};
@@ -767,7 +792,8 @@ async function runTargetSearch(type, targetPrice){
 /*** ===== LAYERS ===== */
 function updateLayers(){
   if(routeLine){map.removeLayer(routeLine);routeLine=null}
-  map.closePopup(); selectedPoints=[];
+  map.closePopup();
+  selectedPoints=[];
   if(searchMarker){map.removeLayer(searchMarker);searchMarker=null}
 
   const selected=getSelectedCountries(), noCountry=(selected.length===1&&selected[0]==="all");
@@ -819,21 +845,6 @@ function updateLayers(){
   }
 }
 
-/*** ===== PICK / CLEAR ===== */
-function pickPoint(label,coord){
-  selectedPoints.push({label,coord});
-  if(selectedPoints.length===2){
-    const [a,b]=selectedPoints;
-    selectedPoints=[];
-    showRoute(a,b);
-  }
-}
-function clearRoute(){
-  if(routeLine){ map.removeLayer(routeLine); routeLine = null; }
-  map.closePopup();
-  selectedPoints = [];
-}
-
 /*** ===== UNIT UI ===== */
 function applyUnitUIOnly(){
   if(isPellets()){
@@ -866,16 +877,6 @@ async function switchUnit(newUnit){
 unitSelect.addEventListener("change", async ()=>{ await switchUnit(unitSelect.value); });
 
 /*** ===== EVENTS ===== */
-map.on("click", (e)=>{
-  if(ctxEl) return;
-  if(map._popup) return;
-
-  if(routeLine){
-    const t = e.originalEvent?.target;
-    if(t && (t.tagName === "path" || t.closest?.("path"))) return;
-  }
-  clearRoute();
-});
 document.addEventListener("keydown", (e)=>{ if(e.key === "Escape") clearRoute(); });
 
 document.addEventListener("mousedown",(e)=>{
@@ -953,4 +954,3 @@ searchInput.addEventListener("keydown",async e=>{
 </script>
 </body>
 </html>
-```
