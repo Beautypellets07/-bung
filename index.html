@@ -240,9 +240,8 @@ function getEffectiveFirmColor(m){
   return colorForPrice(price, !hasReal);
 }
 
-/* Popup Funktionen */
+/* Popup: speichern/löschen */
 let activeFirmForPricePopup = null;
-let activeFirmCoordForPricePopup = null;
 
 window.saveManualFirmPrice = function(){
   if(!activeFirmForPricePopup) return;
@@ -259,15 +258,9 @@ window.clearManualFirmPrice = function(){
   map.closePopup();
   updateLayers();
 };
-window.pickFirmFromPopup = function(){
-  if(!activeFirmForPricePopup || !activeFirmCoordForPricePopup) return;
-  map.closePopup();
-  pickPoint(activeFirmForPricePopup, activeFirmCoordForPricePopup);
-};
 
 function openFirmPricePopup(firmObj, coord, latlng){
   activeFirmForPricePopup = firmObj.firma;
-  activeFirmCoordForPricePopup = coord;
 
   const isSack = isPellets() && sackAktiv();
   const baseOrig = isSack ? firmObj._preisSackOrig : firmObj._preisOrig;
@@ -276,7 +269,9 @@ function openFirmPricePopup(firmObj, coord, latlng){
   const manual = getManualPriceForFirm(firmObj.firma);
   const manualTxt = manual ? manual.toFixed(2) : "";
 
-  const label = !isPellets() ? "Werkspreis (Streusalz)" : (isSack ? "Sackware-Preis" : "Werkspreis (Lose)");
+  const label = !isPellets()
+    ? "Werkspreis (Streusalz)"
+    : (isSack ? "Sackware-Preis" : "Werkspreis (Lose)");
 
   const html = `
     <div style="min-width:240px">
@@ -291,14 +286,6 @@ function openFirmPricePopup(firmObj, coord, latlng){
       <div class="btnRow">
         <button class="btn" onclick="saveManualFirmPrice()">Speichern</button>
         <button class="btn" onclick="clearManualFirmPrice()">Löschen</button>
-      </div>
-
-      <div class="btnRow">
-        <button class="btn" onclick="pickFirmFromPopup()">Als Punkt wählen</button>
-      </div>
-
-      <div class="small" style="margin-top:8px">
-        Hinweis: Manuelle Preise werden im Browser gespeichert (bleiben nach Reload).
       </div>
     </div>
   `;
@@ -322,16 +309,9 @@ const saveGeo=()=>localStorage.setItem("geoCachePellets_EU",JSON.stringify(geoCa
 async function loadGeoCacheFile(){
   try{
     const r = await fetch("./geocache.json", {cache:"no-store"});
-    if(!r.ok){
-      fileGeoCache = {};
-      return;
-    }
+    if(!r.ok){ fileGeoCache = {}; return; }
     const j = await r.json();
-    if(j && typeof j === "object"){
-      fileGeoCache = j;
-    }else{
-      fileGeoCache = {};
-    }
+    fileGeoCache = (j && typeof j === "object") ? j : {};
   }catch(e){
     fileGeoCache = {};
   }
@@ -378,12 +358,6 @@ let alleMarker=[], selectedPoints=[], routeLine=null, searchMarker=null;
 let ctxEl=null, ctxCustomer=null, matchMarkers=[];
 
 function closeCtx(){ if(ctxEl){ctxEl.remove(); ctxEl=null;} ctxCustomer=null; }
-function resetMatchHighlights(){
-  for(const m of matchMarkers){
-    try{ if(m.marker.setStyle && m._origStyle) m.marker.setStyle(m._origStyle); }catch(e){}
-  }
-  matchMarkers=[];
-}
 function stopEvt(el){
   if(!el) return;
   L.DomEvent.disableClickPropagation(el);
@@ -478,10 +452,8 @@ async function loadWerkeForUnit(unit){
 
   const data = await new Promise(res=>Papa.parse(url,{
     download:true, header:false, skipEmptyLines:true,
-    complete:r=>{
-      try{ res(normalizePreise(parseFirmenArray(r.data||[]))) }catch(e){ res([]) }
-    },
-    error: _err=>{ res([]); }
+    complete:r=>{ try{ res(normalizePreise(parseFirmenArray(r.data||[]))) }catch(e){ res([]) } },
+    error:_=>res([])
   }));
 
   if(unit==="pellets") werkePellets = data;
@@ -496,10 +468,8 @@ async function loadKundenForUnit(unit){
 
   const data = await new Promise(res=>Papa.parse(url,{
     download:true, header:true, skipEmptyLines:true,
-    complete:r=>{
-      try{ res(parseKunden(r.data||[])) }catch(e){ res([]) }
-    },
-    error: _err=>{ res([]); }
+    complete:r=>{ try{ res(parseKunden(r.data||[])) }catch(e){ res([]) } },
+    error:_=>res([])
   }));
 
   if(unit==="pellets") kundenPellets = data;
@@ -521,7 +491,7 @@ function updateCountryButtonLabel(){
 
 /*** ====== TOOLTIP ====== ***/
 function tooltipFirma(m){
-  const {price, isManual, hasReal} = getEffectiveFirmPrice(m);
+  const {price, isManual} = getEffectiveFirmPrice(m);
   const preisTxt = (isFinite(price) && price>0) ? `${price.toFixed(2)} €` : "–";
   const manTxt = isManual ? `<br><span class="small"><b>Manuell:</b> ${price.toFixed(2)} €</span>` : "";
   const z=m.zert?`<br><b>Zertifikat:</b> ${m.zert}`:"";
@@ -539,7 +509,6 @@ async function buildMap(){
 
   const bounds=L.latLngBounds();
 
-  // Firmen
   for(const w of werke){
     if(myToken !== buildToken) return;
     const c = getCoordForPlace(w.ort);
@@ -550,7 +519,6 @@ async function buildMap(){
     const cm=L.circleMarker([c.lat,c.lon],{radius:8,color:farbe,fillColor:farbe,fillOpacity:.85})
       .bindTooltip("",{sticky:true})
       .on("tooltipopen",()=>cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code})))
-      /* ✅ Linksklick auf Firma öffnet Preis-Popup */
       .on("click",(ev)=>{
         if(ev?.originalEvent && ev.originalEvent.button !== 0) return;
         openFirmPricePopup(w, {lat:c.lat, lon:c.lon}, ev.latlng);
@@ -560,7 +528,6 @@ async function buildMap(){
     bounds.extend([c.lat,c.lon]);
   }
 
-  // Kunden
   for(const k of kunden){
     if(myToken !== buildToken) return;
     const c = getCoordForPlace(k.ort);
@@ -573,8 +540,7 @@ async function buildMap(){
       type=isSonstige?"sonstige":isSackOnly?"sackkunde":"kunde";
       icon=isSonstige?iconOrange:isSackOnly?iconPurple:iconBlue;
     }else{
-      type="streukunde";
-      icon=iconBlue;
+      type="streukunde"; icon=iconBlue;
     }
 
     const mk=L.marker([c.lat,c.lon],{icon})
@@ -647,7 +613,6 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
 
   const firmObj = findFirmInLabels(aLabel,bLabel);
   const base = getBasePriceForFirm(firmObj);
-
   const {total, preisProKm, margeFaktor} = calcDeliveredPrice(distKm, base);
 
   if(routeLine) map.removeLayer(routeLine);
@@ -659,10 +624,6 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
     ? "Werkspreis"
     : ((isPellets() && sackAktiv()) ? "Sackware-Preis" : "Werkspreis");
 
-  const manualInfo = (firmObj && getManualPriceForFirm(firmObj.firma))
-    ? `<br><small>Manueller Preis aktiv für <b>${firmObj.firma}</b>.</small>`
-    : "";
-
   L.popup().setLatLng(mid).setContent(`
     <b>Route:</b> ${aLabel} ↔ ${bLabel}<br>
     <b>Entfernung:</b> ${distKm.toFixed(1)} km ${dashed?"(Luftlinie)":"(Straße)"}<br>
@@ -671,7 +632,6 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
     <b>${baseLabel}:</b> ${(base||0).toFixed(2)} €<br>
     <b>Marge:</b> ${margeTxt}<br>
     <b>Gesamtkosten:</b> <span style="color:green;font-size:1.1em">${total.toFixed(2)} €</span>
-    ${manualInfo}
     ${dashed?`<br><small>Keine Straßenroute verfügbar → Luftlinie gestrichelt.</small>`:""}
   `).openOn(map);
 
