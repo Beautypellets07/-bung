@@ -259,7 +259,7 @@ window.clearManualFirmPrice = function(){
   updateLayers();
 };
 
-function openFirmPricePopup(firmObj, coord, latlng){
+function openFirmPricePopup(firmObj, latlng){
   activeFirmForPricePopup = firmObj.firma;
 
   const isSack = isPellets() && sackAktiv();
@@ -355,7 +355,7 @@ const iconBlue=tri("blue"), iconPurple=tri("purple"), iconOrange=tri("orange");
 let werkePellets=null, werkeStreusalz=null, werke=[];
 let kundenPellets=null, kundenStreusalz=null, kunden=[];
 let alleMarker=[], selectedPoints=[], routeLine=null, searchMarker=null;
-let ctxEl=null, ctxCustomer=null, matchMarkers=[];
+let ctxEl=null, ctxCustomer=null;
 
 function closeCtx(){ if(ctxEl){ctxEl.remove(); ctxEl=null;} ctxCustomer=null; }
 function stopEvt(el){
@@ -509,6 +509,7 @@ async function buildMap(){
 
   const bounds=L.latLngBounds();
 
+  // Firmen
   for(const w of werke){
     if(myToken !== buildToken) return;
     const c = getCoordForPlace(w.ort);
@@ -519,15 +520,19 @@ async function buildMap(){
     const cm=L.circleMarker([c.lat,c.lon],{radius:8,color:farbe,fillColor:farbe,fillOpacity:.85})
       .bindTooltip("",{sticky:true})
       .on("tooltipopen",()=>cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code})))
-      .on("click",(ev)=>{
-        if(ev?.originalEvent && ev.originalEvent.button !== 0) return;
-        openFirmPricePopup(w, {lat:c.lat, lon:c.lon}, ev.latlng);
+      /* ✅ Linksklick = Strecke (Punkt wählen) */
+      .on("click",()=>pickPoint(w.firma,{lat:c.lat,lon:c.lon}))
+      /* ✅ Rechtsklick = Preis-Popup */
+      .on("contextmenu",(ev)=>{
+        ev.originalEvent?.preventDefault?.();
+        openFirmPricePopup(w, ev.latlng);
       });
 
     alleMarker.push({type:"firma",marker:cm,...w,country_code:c.country_code||"", _coord:{lat:c.lat,lon:c.lon}});
     bounds.extend([c.lat,c.lon]);
   }
 
+  // Kunden
   for(const k of kunden){
     if(myToken !== buildToken) return;
     const c = getCoordForPlace(k.ort);
@@ -639,185 +644,6 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
 }
 function showRoute(a,b){ return showRouteByCoords(a.label, a.coord, b.label, b.coord); }
 
-/*** ===== CONTEXT MENU (Zielpreis) ===== */
-function openCustomerMenu(kunde, coord, mouseEvent){
-  closeCtx();
-  ctxCustomer = {name:kunde.name, ort:kunde.ort, coord};
-
-  const p = map.mouseEventToContainerPoint(mouseEvent);
-  const cont = map.getContainer();
-
-  ctxEl = document.createElement("div");
-  ctxEl.className = "ctxbox";
-  ctxEl.style.left = Math.min(Math.max(10, p.x), cont.clientWidth-300) + "px";
-  ctxEl.style.top  = Math.min(Math.max(10, p.y), cont.clientHeight-320) + "px";
-
-  const typeRow = isPellets() ? `
-    <div class="row" style="margin-top:10px">
-      <select id="ctxType">
-        <option value="lose">Pellets lose</option>
-        <option value="sack">Sackware</option>
-      </select>
-    </div>
-  ` : `
-    <div class="row" style="margin-top:10px">
-      <div class="small"><b>Unit:</b> Streusalz</div>
-    </div>
-  `;
-
-  ctxEl.innerHTML = `
-    <div class="topbar">
-      <div style="min-width:0">
-        <b style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${kunde.name}</b>
-        <div class="small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${kunde.ort}</div>
-      </div>
-      <button class="xbtn" id="ctxClose">×</button>
-    </div>
-
-    ${typeRow}
-
-    <div class="row">
-      <input id="ctxPrice" type="number" step="0.01" placeholder="Zielpreis (€) eingeben…">
-    </div>
-
-    <div class="results" id="ctxResults"></div>
-  `;
-
-  cont.appendChild(ctxEl);
-  stopEvt(ctxEl);
-
-  ctxEl.querySelector("#ctxClose").addEventListener("click", closeCtx);
-
-  const input = ctxEl.querySelector("#ctxPrice");
-  input.focus();
-  input.addEventListener("keydown", async (e)=>{
-    if(e.key !== "Enter") return;
-    const target = num(input.value);
-    const type = isPellets() ? (ctxEl.querySelector("#ctxType").value) : "lose";
-    if(!isFinite(target) || target<=0){ alert("Bitte einen gültigen Zielpreis eingeben."); return; }
-    await runTargetSearch(type, target);
-  });
-}
-
-async function runTargetSearch(type, targetPrice){
-  if(!ctxEl || !ctxCustomer) return;
-  const resBox = ctxEl.querySelector("#ctxResults");
-  resBox.innerHTML = `<div class="small">Suche…</div>`;
-
-  const firmsVisible = alleMarker
-    .filter(m => m.type==="firma" && map.hasLayer(m.marker))
-    .map(m => {
-      const isSack = isPellets() && (type === "sack");
-      const key = `${currentUnit}|${isSack?"sack":"lose"}|${str(m.firma)}`;
-      const manual = (isFinite(+manualPrices[key]) && +manualPrices[key]>0) ? +manualPrices[key] : null;
-
-      const hasReal = manual ? true : (isSack ? !m.keinPreisSack : !m.keinPreisWerk);
-      const base = manual ?? (isSack ? m._preisSackOrig : m._preisOrig);
-      return { ...m, base, hasReal };
-    })
-    .filter(m => m.hasReal && isFinite(m.base) && m.base>0);
-
-  if(!firmsVisible.length){
-    resBox.innerHTML = `<div class="small">Keine passenden Firmen mit Preis gefunden (Filter/Layer beachten).</div>`;
-    return;
-  }
-
-  const c = ctxCustomer.coord;
-  const pre = firmsVisible.map(f=>{
-    const d0 = luftlinieKm({lat:c.lat,lon:c.lon},{lat:f._coord.lat,lon:f._coord.lon});
-    return {...f, d0};
-  }).sort((a,b)=>a.d0-b.d0);
-
-  const LIMIT = 40;
-  const candidates = pre.slice(0, Math.min(LIMIT, pre.length));
-
-  const matches = [];
-  for(const f of candidates){
-    let dist = null;
-    try{ dist = await osrmDistKm({lat:c.lat,lon:c.lon},{lat:f._coord.lat,lon:f._coord.lon}); }catch(e){}
-    if(!dist) dist = f.d0;
-    const {total} = calcDeliveredPrice(dist, f.base);
-    if(total <= targetPrice) matches.push({ f, distKm: dist, total });
-  }
-
-  matches.sort((a,b)=>a.total-b.total);
-
-  if(!matches.length){
-    resBox.innerHTML = `<div class="small">Keine Firma unter ${targetPrice.toFixed(2)} € gefunden.</div>`;
-    return;
-  }
-
-  const pill = isPellets() ? (type==="sack"?"Sackware":"Lose") : "Streusalz";
-  const baseLabel = isPellets()
-    ? (type==="sack" ? "Sackware-Preis" : "Werkspreis")
-    : "Werkspreis";
-
-  resBox.innerHTML = matches.slice(0,20).map((m,i)=>`
-    <div class="item" data-i="${i}">
-      <div><b>${m.f.firma}</b><span class="pill">${pill}</span></div>
-      <div class="small">${m.f.ort}</div>
-      <div class="small"><b>Entfernung:</b> ${m.distKm.toFixed(1)} km</div>
-      <div class="small"><b>${baseLabel}:</b> ${m.f.base.toFixed(2)} €</div>
-      <div><b>Lieferpreis:</b> ${m.total.toFixed(2)} €</div>
-    </div>
-  `).join("");
-}
-
-/*** ===== LAYERS ===== */
-function updateLayers(){
-  if(routeLine){map.removeLayer(routeLine);routeLine=null}
-  map.closePopup(); selectedPoints=[];
-  if(searchMarker){map.removeLayer(searchMarker);searchMarker=null}
-
-  const selected=getSelectedCountries(), noCountry=(selected.length===1&&selected[0]==="all");
-  const en=chkEnPlus.checked, din=chkDINplus.checked, sure=chkSURE.checked, cpp=chkCPP.checked, ohne=chkOhneZert.checked;
-  const gr=chkGruen.checked, or=chkOrange.checked, ro=chkRot.checked, ga=chkGrau.checked;
-
-  const wantF = isPellets() ? chkSackFireflies.checked : false;
-  const want15 = isPellets() ? chkSack15kg.checked : false;
-  const useSack = isPellets() && (wantF || want15);
-
-  const showPelletK = isPellets() ? chkKunden.checked : false;
-  const showPelletSK = isPellets() ? chkSackKunden.checked : false;
-  const showPelletS = isPellets() ? chkSonstigeKunden.checked : false;
-  const showStreuK = !isPellets() ? chkKundenStreusalz.checked : false;
-
-  for(const m of alleMarker){
-    if(map.hasLayer(m.marker)) map.removeLayer(m.marker);
-
-    if(!noCountry && m.country_code && !selected.includes(m.country_code)) continue;
-
-    if(m.type==="kunde"){ if(showPelletK) map.addLayer(m.marker); continue; }
-    if(m.type==="sackkunde"){ if(showPelletSK) map.addLayer(m.marker); continue; }
-    if(m.type==="sonstige"){ if(showPelletS) map.addLayer(m.marker); continue; }
-    if(m.type==="streukunde"){ if(showStreuK) map.addLayer(m.marker); continue; }
-
-    if(useSack){
-      const s=lc(m.sack).replace(/\s+/g," ");
-      const hasF=s.includes("fireflies"), has15=s.includes("15 kg")||s.includes("15kg");
-      if(wantF && !want15 && !hasF) continue;
-      if(want15 && !wantF && !has15) continue;
-      if(wantF && want15 && !(hasF||has15)) continue;
-    }
-
-    const z=lc(m.zert);
-    let zertOK=false;
-    if(z.includes("enplus")&&en) zertOK=true;
-    if(z.includes("dinplus")&&din) zertOK=true;
-    if(z.includes("sure")&&sure) zertOK=true;
-    if(z.includes("cpp")&&cpp) zertOK=true;
-    if(!z&&ohne) zertOK=true;
-    if(!zertOK) continue;
-
-    const farbe = getEffectiveFirmColor(m);
-    const ok=(farbe==="green"&&gr)||(farbe==="orange"&&or)||(farbe==="red"&&ro)||(farbe==="#9e9e9e"&&ga);
-    if(!ok) continue;
-
-    m.marker.setStyle?.({color:farbe,fillColor:farbe});
-    map.addLayer(m.marker);
-  }
-}
-
 /*** ===== PICK / CLEAR ===== */
 function pickPoint(label,coord){
   selectedPoints.push({label,coord});
@@ -867,13 +693,13 @@ unitSelect.addEventListener("change", async ()=>{ await switchUnit(unitSelect.va
 /*** ===== EVENTS ===== */
 map.on("click", (e)=>{
   if(ctxEl) return;
-  if(map._popup) return;
 
   if(routeLine){
     const t = e.originalEvent?.target;
     if(t && (t.tagName === "path" || t.closest?.("path"))) return;
   }
-  clearRoute();
+  // NICHT bei normalem Klick löschen, weil Klick ja Punkte setzen soll.
+  // clearRoute();  <-- absichtlich weg
 });
 document.addEventListener("keydown", (e)=>{ if(e.key === "Escape") clearRoute(); });
 
