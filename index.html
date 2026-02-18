@@ -109,7 +109,8 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
     <hr>
     <b>Sackware</b><br>
     <label><input type="checkbox" id="chkSackFireflies"> FireFlies</label><br>
-    <label><input type="checkbox" id="chkSack15kg"> 15 kg</label>
+    <label><input type="checkbox" id="chkSack15kg"> 15 kg</label><br>
+    <label><input type="checkbox" id="chkBigBag"> Big Bag</label>
   </div>
 </div>
 
@@ -170,6 +171,7 @@ const chkOhneZert = document.getElementById("chkOhneZert");
 
 const chkSackFireflies = document.getElementById("chkSackFireflies");
 const chkSack15kg = document.getElementById("chkSack15kg");
+const chkBigBag = document.getElementById("chkBigBag");
 
 const chkGruen = document.getElementById("chkGruen");
 const chkOrange = document.getElementById("chkOrange");
@@ -190,7 +192,9 @@ const lc=s=>String(s??"").toLowerCase().trim();
 const str=v=>String(v??"").trim();
 
 function isPellets(){ return currentUnit==="pellets"; }
-function sackAktiv(){ return isPellets() && (chkSackFireflies.checked || chkSack15kg.checked); }
+function sackAktiv(){
+  return isPellets() && (chkSackFireflies.checked || chkSack15kg.checked || chkBigBag.checked);
+}
 function colorForPrice(p,kein){
   if(kein||!isFinite(p)||p<=0) return "#9e9e9e";
   if(p<=260) return "green";
@@ -269,7 +273,6 @@ function getCoordForPlace(place){
   }
   return null;
 }
-// ✅ Nominatim nur für Suche (1 Treffer)
 async function geocodeOnce(q){
   try{
     const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&limit=1&accept-language=de`);
@@ -316,6 +319,7 @@ function findIndex(headers, cands){
   const cs=cands.map(c=>lc(c));
   return hs.findIndex(h=>cs.includes(h));
 }
+
 function parseFirmenArray(table){
   if(!table || table.length<2) return [];
   const headers=(table[0]||[]).map(x=>str(x));
@@ -331,6 +335,10 @@ function parseFirmenArray(table){
   let zertIdx = findIndex(headers, ["zertifikat","zertifikate","zert","cert"]); if(zertIdx<0) zertIdx = -1;
   let sackTxtIdx = findIndex(headers, ["sackware","sack","bag","bagged"]); if(sackTxtIdx<0) sackTxtIdx = -1;
 
+  // ✅ Big Bag (Spalte M) – erst Header suchen, sonst Fallback Index 12
+  let bigBagIdx = findIndex(headers, ["big bag","bigbag","big_bag","big-bag"]);
+  if(bigBagIdx<0 && headers.length>=13) bigBagIdx = 12; // Spalte M
+
   return rows
     .filter(r=>str(r[nameIdx]) && str(r[ortIdx]))
     .map(r=>{
@@ -343,11 +351,13 @@ function parseFirmenArray(table){
         preisSack: ps,
         zert: zertIdx>=0 ? str(r[zertIdx]) : "",
         sack: sackTxtIdx>=0 ? str(r[sackTxtIdx]) : "",
+        bigbag: bigBagIdx>=0 ? str(r[bigBagIdx]) : "",
         _preisOrig: p,
         _preisSackOrig: ps
       };
     });
 }
+
 function parseKunden(rows){
   const keys=Object.keys(rows[0]||{}),
     nameKey=(keys.find(k=>["name","kunde","kundenname"].includes(lc(k)))||keys[0]),
@@ -364,6 +374,7 @@ function parseKunden(rows){
     sonstige:lc(x[sonstKey])
   })).filter(x=>x.name&&x.ort);
 }
+
 function normalizePreise(d){
   const w=d.filter(x=>isFinite(x.preis)&&x.preis>0);
   const s=d.filter(x=>isFinite(x.preisSack)&&x.preisSack>0);
@@ -400,6 +411,7 @@ async function loadWerkeForUnit(unit){
   else werkeStreusalz = data;
   return data;
 }
+
 async function loadKundenForUnit(unit){
   if(unit==="pellets" && kundenPellets) return kundenPellets;
   if(unit==="streusalz" && kundenStreusalz) return kundenStreusalz;
@@ -436,7 +448,8 @@ function tooltipFirma(m){
   const manTxt = isManual ? `<br><span class="small"><b>Manuell:</b> ${price.toFixed(2)} €</span>` : "";
   const z=m.zert?`<br><b>Zertifikat:</b> ${m.zert}`:"";
   const s=(isPellets() && m.sack)?`<br><b>Sackware:</b> ${m.sack}`:"";
-  return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${manTxt}${z}${s}`;
+  const bb=(isPellets() && lc(m.bigbag)==="ja")?`<br><b>Big Bag:</b> ja`:"";
+  return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${manTxt}${z}${s}${bb}`;
 }
 
 /*** ====== FIRMA-POPUP (RECHTSKLICK) ====== ***/
@@ -521,9 +534,7 @@ async function buildMap(){
     const cm=L.circleMarker([c.lat,c.lon],{radius:8,color:farbe,fillColor:farbe,fillOpacity:.85})
       .bindTooltip("",{sticky:true})
       .on("tooltipopen",()=>cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code})))
-      // ✅ Linksklick = Punkt wählen (Strecke)
       .on("click",()=>pickPoint(w.firma,{lat:c.lat,lon:c.lon}))
-      // ✅ Rechtsklick = Preis-Popup
       .on("contextmenu",(ev)=>{
         ev.originalEvent?.preventDefault?.();
         openFirmPricePopup(w, ev.latlng);
@@ -792,8 +803,7 @@ async function runTargetSearch(type, targetPrice){
 /*** ===== LAYERS ===== */
 function updateLayers(){
   if(routeLine){map.removeLayer(routeLine);routeLine=null}
-  map.closePopup();
-  selectedPoints=[];
+  map.closePopup(); selectedPoints=[];
   if(searchMarker){map.removeLayer(searchMarker);searchMarker=null}
 
   const selected=getSelectedCountries(), noCountry=(selected.length===1&&selected[0]==="all");
@@ -802,7 +812,9 @@ function updateLayers(){
 
   const wantF = isPellets() ? chkSackFireflies.checked : false;
   const want15 = isPellets() ? chkSack15kg.checked : false;
-  const useSack = isPellets() && (wantF || want15);
+  const wantBB = isPellets() ? chkBigBag.checked : false;
+
+  const useSack = isPellets() && (wantF || want15 || wantBB);
 
   const showPelletK = isPellets() ? chkKunden.checked : false;
   const showPelletSK = isPellets() ? chkSackKunden.checked : false;
@@ -819,12 +831,19 @@ function updateLayers(){
     if(m.type==="sonstige"){ if(showPelletS) map.addLayer(m.marker); continue; }
     if(m.type==="streukunde"){ if(showStreuK) map.addLayer(m.marker); continue; }
 
+    // Sackware Filter (FireFlies/15kg/BigBag) – OR Logik
     if(useSack){
       const s=lc(m.sack).replace(/\s+/g," ");
-      const hasF=s.includes("fireflies"), has15=s.includes("15 kg")||s.includes("15kg");
-      if(wantF && !want15 && !hasF) continue;
-      if(want15 && !wantF && !has15) continue;
-      if(wantF && want15 && !(hasF||has15)) continue;
+      const hasF=s.includes("fireflies");
+      const has15=s.includes("15 kg")||s.includes("15kg");
+      const hasBB=lc(m.bigbag)==="ja";
+
+      const anyMatch =
+        (wantF && hasF) ||
+        (want15 && has15) ||
+        (wantBB && hasBB);
+
+      if(!anyMatch) continue;
     }
 
     const z=lc(m.zert);
@@ -859,6 +878,7 @@ function applyUnitUIOnly(){
     kundenFilterStreusalz.classList.remove("hidden");
     chkSackFireflies.checked = false;
     chkSack15kg.checked = false;
+    chkBigBag.checked = false;
   }
 }
 
@@ -878,20 +898,14 @@ unitSelect.addEventListener("change", async ()=>{ await switchUnit(unitSelect.va
 
 /*** ===== EVENTS ===== */
 map.on("click", (e)=>{
-  if(ctxEl) return; // wenn Kunden-Box offen ist, nix machen
+  if(ctxEl) return;
 
-  // Wenn Route existiert: nur löschen, wenn NICHT auf die Linie geklickt wurde
   if(routeLine){
     const t = e.originalEvent?.target;
-    // Leaflet zeichnet die Polyline als SVG <path>
-    if(t && (t.tagName === "path" || t.closest?.("path"))) {
-      return; // Klick auf Linie -> nicht löschen
-    }
-    clearRoute(); // Klick daneben -> löschen
+    if(t && (t.tagName === "path" || t.closest?.("path"))) return;
+    clearRoute();
     return;
   }
-
-  // wenn keine Route da ist, kein automatisches Löschen (sonst nervt es beim Punkte wählen)
 });
 document.addEventListener("keydown", (e)=>{ if(e.key === "Escape") clearRoute(); });
 
@@ -902,6 +916,20 @@ document.addEventListener("mousedown",(e)=>{
 });
 map.on("movestart", closeCtx);
 map.on("zoomstart", closeCtx);
+
+document.addEventListener("change",e=>{
+  if(e.target?.matches('input[type="checkbox"]')){
+    if(e.target.classList.contains("countryChk")){
+      if(e.target.value==="all"&&e.target.checked) [...document.querySelectorAll(".countryChk")].forEach(x=>x.value!=="all"&&(x.checked=false));
+      if(e.target.value!=="all"&&e.target.checked) document.querySelector('.countryChk[value="all"]').checked=false;
+      updateCountryButtonLabel();
+    }
+    updateLayers();
+  }
+});
+
+countryDropdownBtn.addEventListener("click",()=>countryDropdownMenu.style.display=(countryDropdownMenu.style.display==="block"?"none":"block"));
+document.addEventListener("click",e=>{if(!countryDropdown.contains(e.target)) countryDropdownMenu.style.display="none"});
 
 /*** ===== SEARCH (Nominatim nur hier) ===== */
 searchInput.addEventListener("keydown",async e=>{
