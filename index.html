@@ -47,7 +47,7 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 .ctxbox .xbtn{border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;padding:2px 8px; line-height:1.6;}
 .hidden{display:none!important}
 
-/* kleine buttons im leaflet popup */
+/* Buttons im Popup */
 .btnRow{display:flex;gap:8px;margin-top:8px}
 .btn{border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;padding:6px 10px}
 .btn:hover{background:#fafafa}
@@ -204,8 +204,6 @@ let manualPrices = JSON.parse(localStorage.getItem(MANUAL_KEY) || "{}");
 const saveManual = ()=>localStorage.setItem(MANUAL_KEY, JSON.stringify(manualPrices));
 
 function priceTypeKey(){
-  // sackAktiv = du bist gerade im Sack-Modus (Fireflies oder 15kg aktiviert)
-  // in Streusalz gibt es nur "lose"
   if(!isPellets()) return "lose";
   return sackAktiv() ? "sack" : "lose";
 }
@@ -227,20 +225,33 @@ function setManualPriceForFirm(firma, value){
   saveManual();
 }
 
-// wird genutzt von Popup-Buttons
+/* Effektiver Preis + effektive Farbe (manuell hat Vorrang) */
+function getEffectiveFirmPrice(m){
+  const manual = getManualPriceForFirm(m.firma);
+  if(manual) return { price: manual, isManual: true, hasReal: true };
+
+  const isSack = isPellets() && sackAktiv();
+  const orig = isSack ? m._preisSackOrig : m._preisOrig;
+  const hasReal = isSack ? !m.keinPreisSack : !m.keinPreisWerk;
+  return { price: orig, isManual: false, hasReal };
+}
+function getEffectiveFirmColor(m){
+  const { price, hasReal } = getEffectiveFirmPrice(m);
+  return colorForPrice(price, !hasReal);
+}
+
+/* Popup Funktionen */
 let activeFirmForPricePopup = null;
+let activeFirmCoordForPricePopup = null;
+
 window.saveManualFirmPrice = function(){
   if(!activeFirmForPricePopup) return;
   const inp = document.getElementById("manualFirmPriceInput");
-  const raw = inp ? inp.value : "";
-  const v = num(raw);
-  if(!isFinite(v) || v<=0){
-    alert("Bitte gültigen Preis eingeben.");
-    return;
-  }
+  const v = num(inp ? inp.value : "");
+  if(!isFinite(v) || v<=0){ alert("Bitte gültigen Preis eingeben."); return; }
   setManualPriceForFirm(activeFirmForPricePopup, v);
   map.closePopup();
-  updateLayers(); // nicht zwingend, aber praktisch (Tooltip zeigt dann manuell)
+  updateLayers();
 };
 window.clearManualFirmPrice = function(){
   if(!activeFirmForPricePopup) return;
@@ -253,14 +264,12 @@ window.pickFirmFromPopup = function(){
   map.closePopup();
   pickPoint(activeFirmForPricePopup, activeFirmCoordForPricePopup);
 };
-let activeFirmCoordForPricePopup = null;
 
 function openFirmPricePopup(firmObj, coord, latlng){
-  // nur Firmen!
   activeFirmForPricePopup = firmObj.firma;
   activeFirmCoordForPricePopup = coord;
 
-  const isSack = isPellets() && (priceTypeKey()==="sack");
+  const isSack = isPellets() && sackAktiv();
   const baseOrig = isSack ? firmObj._preisSackOrig : firmObj._preisOrig;
   const baseTxt = (isFinite(baseOrig) && baseOrig>0) ? baseOrig.toFixed(2) : "–";
 
@@ -273,7 +282,7 @@ function openFirmPricePopup(firmObj, coord, latlng){
     <div style="min-width:240px">
       <b>${firmObj.firma}</b><br>
       <div class="small">${firmObj.ort}</div>
-      <div style="margin-top:6px" class="small"><b>Aktueller ${label}:</b> ${baseTxt} €</div>
+      <div style="margin-top:6px" class="small"><b>Tabellen ${label}:</b> ${baseTxt} €</div>
 
       <div style="margin-top:10px"><b>Preis manuell setzen</b></div>
       <input id="manualFirmPriceInput" type="number" step="0.01" placeholder="€/t" value="${manualTxt}"
@@ -289,7 +298,7 @@ function openFirmPricePopup(firmObj, coord, latlng){
       </div>
 
       <div class="small" style="margin-top:8px">
-        Tipp: <b>Mausrad-Klick</b> auf Firma wählt direkt als Punkt (ohne Popup).
+        Hinweis: Manuelle Preise werden im Browser gespeichert (bleiben nach Reload).
       </div>
     </div>
   `;
@@ -299,7 +308,6 @@ function openFirmPricePopup(firmObj, coord, latlng){
     .setContent(html)
     .openOn(map);
 
-  // fokus input
   setTimeout(()=>{
     const el=document.getElementById("manualFirmPriceInput");
     if(el) el.focus();
@@ -513,19 +521,9 @@ function updateCountryButtonLabel(){
 
 /*** ====== TOOLTIP ====== ***/
 function tooltipFirma(m){
-  const useSack = sackAktiv();
-  const isSack = isPellets() && useSack;
-
-  const manual = getManualPriceForFirm(m.firma);
-
-  const p = manual ?? (
-    isSack
-      ? (m.keinPreisSack ? NaN : m._preisSackOrig)
-      : (m.keinPreisWerk ? NaN : m._preisOrig)
-  );
-
-  const preisTxt = (isFinite(p)&&p>0) ? `${p.toFixed(2)} €` : "–";
-  const manTxt = manual ? `<br><span class="small"><b>Manuell:</b> ${manual.toFixed(2)} €</span>` : "";
+  const {price, isManual, hasReal} = getEffectiveFirmPrice(m);
+  const preisTxt = (isFinite(price) && price>0) ? `${price.toFixed(2)} €` : "–";
+  const manTxt = isManual ? `<br><span class="small"><b>Manuell:</b> ${price.toFixed(2)} €</span>` : "";
   const z=m.zert?`<br><b>Zertifikat:</b> ${m.zert}`:"";
   const s=(isPellets() && m.sack)?`<br><b>Sackware:</b> ${m.sack}`:"";
   return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${manTxt}${z}${s}`;
@@ -540,7 +538,6 @@ async function buildMap(){
   if(searchMarker){ try{ map.removeLayer(searchMarker);}catch(e){} searchMarker=null; }
 
   const bounds=L.latLngBounds();
-  let markerCount = 0;
 
   // Firmen
   for(const w of werke){
@@ -548,27 +545,19 @@ async function buildMap(){
     const c = getCoordForPlace(w.ort);
     if(!c) continue;
 
-    const farbe = (isPellets() && sackAktiv()) ? w.farbeSack : w.farbeWerk;
+    const farbe = getEffectiveFirmColor(w);
 
     const cm=L.circleMarker([c.lat,c.lon],{radius:8,color:farbe,fillColor:farbe,fillOpacity:.85})
       .bindTooltip("",{sticky:true})
       .on("tooltipopen",()=>cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code})))
-      // ✅ Linksklick NUR Firma: Preis-Popup öffnen
+      /* ✅ Linksklick auf Firma öffnet Preis-Popup */
       .on("click",(ev)=>{
-        // nur wenn wirklich linker klick
         if(ev?.originalEvent && ev.originalEvent.button !== 0) return;
         openFirmPricePopup(w, {lat:c.lat, lon:c.lon}, ev.latlng);
-      })
-      // ✅ Mausrad-Klick (middle) auf Firma: direkt als Punkt wählen (für Strecke)
-      .on("mousedown",(ev)=>{
-        if(ev?.originalEvent && ev.originalEvent.button === 1){
-          pickPoint(w.firma,{lat:c.lat,lon:c.lon});
-        }
       });
 
     alleMarker.push({type:"firma",marker:cm,...w,country_code:c.country_code||"", _coord:{lat:c.lat,lon:c.lon}});
     bounds.extend([c.lat,c.lon]);
-    markerCount++;
   }
 
   // Kunden
@@ -598,7 +587,6 @@ async function buildMap(){
 
     alleMarker.push({type,marker:mk,...k,country_code:c.country_code||"", _coord:{lat:c.lat,lon:c.lon}});
     bounds.extend([c.lat,c.lon]);
-    markerCount++;
   }
 
   if(bounds.isValid()) map.fitBounds(bounds.pad(.15));
@@ -626,18 +614,15 @@ function calcDeliveredPrice(distKm, basePrice){
   return { total, preisProKm, margeFaktor };
 }
 function findFirmInLabels(aLabel,bLabel){
-  // findet das Werk-Objekt, wenn eins der Labels ein Firmenname ist
-  let f = werke.find(w=>w.firma===aLabel) || werke.find(w=>w.firma===bLabel);
-  return f || null;
+  return werke.find(w=>w.firma===aLabel) || werke.find(w=>w.firma===bLabel) || null;
 }
 function getBasePriceForFirm(firmObj){
   if(!firmObj) return 0;
-
   const manual = getManualPriceForFirm(firmObj.firma);
   if(manual) return manual;
 
-  const useSack = sackAktiv();
-  const base = (isPellets() && useSack) ? firmObj.preisSack : firmObj.preis;
+  const isSack = isPellets() && sackAktiv();
+  const base = isSack ? firmObj.preisSack : firmObj.preis;
   return base || 0;
 }
 async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
@@ -670,10 +655,9 @@ async function showRouteByCoords(aLabel,aCoord,bLabel,bCoord){
   const mid=coords[Math.floor(coords.length/2)];
   const margeTxt = (margeFaktor===1.20) ? "20%" : "5%";
 
-  const useSack = sackAktiv();
   const baseLabel = (currentUnit==="streusalz")
     ? "Werkspreis"
-    : ((isPellets() && useSack) ? "Sackware-Preis" : "Werkspreis");
+    : ((isPellets() && sackAktiv()) ? "Sackware-Preis" : "Werkspreis");
 
   const manualInfo = (firmObj && getManualPriceForFirm(firmObj.firma))
     ? `<br><small>Manueller Preis aktiv für <b>${firmObj.firma}</b>.</small>`
@@ -698,7 +682,6 @@ function showRoute(a,b){ return showRouteByCoords(a.label, a.coord, b.label, b.c
 /*** ===== CONTEXT MENU (Zielpreis) ===== */
 function openCustomerMenu(kunde, coord, mouseEvent){
   closeCtx();
-  resetMatchHighlights();
   ctxCustomer = {name:kunde.name, ort:kunde.ort, coord};
 
   const p = map.mouseEventToContainerPoint(mouseEvent);
@@ -755,6 +738,7 @@ function openCustomerMenu(kunde, coord, mouseEvent){
     await runTargetSearch(type, target);
   });
 }
+
 async function runTargetSearch(type, targetPrice){
   if(!ctxEl || !ctxCustomer) return;
   const resBox = ctxEl.querySelector("#ctxResults");
@@ -764,17 +748,12 @@ async function runTargetSearch(type, targetPrice){
     .filter(m => m.type==="firma" && map.hasLayer(m.marker))
     .map(m => {
       const isSack = isPellets() && (type === "sack");
-      const hasReal = isSack ? !m.keinPreisSack : !m.keinPreisWerk;
+      const key = `${currentUnit}|${isSack?"sack":"lose"}|${str(m.firma)}`;
+      const manual = (isFinite(+manualPrices[key]) && +manualPrices[key]>0) ? +manualPrices[key] : null;
 
-      // ✅ wenn manueller Preis gesetzt ist, gilt er als "real"
-      const manual = (()=>{
-        const key = `${currentUnit}|${isSack?"sack":"lose"}|${str(m.firma)}`;
-        const v = manualPrices[key];
-        return (isFinite(+v) && +v>0) ? +v : null;
-      })();
-
+      const hasReal = manual ? true : (isSack ? !m.keinPreisSack : !m.keinPreisWerk);
       const base = manual ?? (isSack ? m._preisSackOrig : m._preisOrig);
-      return { ...m, base, hasReal: (manual ? true : hasReal) };
+      return { ...m, base, hasReal };
     })
     .filter(m => m.hasReal && isFinite(m.base) && m.base>0);
 
@@ -841,7 +820,6 @@ function updateLayers(){
   const showPelletK = isPellets() ? chkKunden.checked : false;
   const showPelletSK = isPellets() ? chkSackKunden.checked : false;
   const showPelletS = isPellets() ? chkSonstigeKunden.checked : false;
-
   const showStreuK = !isPellets() ? chkKundenStreusalz.checked : false;
 
   for(const m of alleMarker){
@@ -871,7 +849,7 @@ function updateLayers(){
     if(!z&&ohne) zertOK=true;
     if(!zertOK) continue;
 
-    const farbe = (isPellets() && useSack) ? m.farbeSack : m.farbeWerk;
+    const farbe = getEffectiveFirmColor(m);
     const ok=(farbe==="green"&&gr)||(farbe==="orange"&&or)||(farbe==="red"&&ro)||(farbe==="#9e9e9e"&&ga);
     if(!ok) continue;
 
@@ -883,7 +861,11 @@ function updateLayers(){
 /*** ===== PICK / CLEAR ===== */
 function pickPoint(label,coord){
   selectedPoints.push({label,coord});
-  if(selectedPoints.length===2){const [a,b]=selectedPoints; selectedPoints=[]; showRoute(a,b);}
+  if(selectedPoints.length===2){
+    const [a,b]=selectedPoints;
+    selectedPoints=[];
+    showRoute(a,b);
+  }
 }
 function clearRoute(){
   if(routeLine){ map.removeLayer(routeLine); routeLine = null; }
@@ -925,8 +907,6 @@ unitSelect.addEventListener("change", async ()=>{ await switchUnit(unitSelect.va
 /*** ===== EVENTS ===== */
 map.on("click", (e)=>{
   if(ctxEl) return;
-
-  // wenn Popup offen ist (Firma-Preis), soll click nicht sofort route clearen
   if(map._popup) return;
 
   if(routeLine){
