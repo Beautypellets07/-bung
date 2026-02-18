@@ -877,6 +877,22 @@ async function switchUnit(newUnit){
 unitSelect.addEventListener("change", async ()=>{ await switchUnit(unitSelect.value); });
 
 /*** ===== EVENTS ===== */
+map.on("click", (e)=>{
+  if(ctxEl) return; // wenn Kunden-Box offen ist, nix machen
+
+  // Wenn Route existiert: nur löschen, wenn NICHT auf die Linie geklickt wurde
+  if(routeLine){
+    const t = e.originalEvent?.target;
+    // Leaflet zeichnet die Polyline als SVG <path>
+    if(t && (t.tagName === "path" || t.closest?.("path"))) {
+      return; // Klick auf Linie -> nicht löschen
+    }
+    clearRoute(); // Klick daneben -> löschen
+    return;
+  }
+
+  // wenn keine Route da ist, kein automatisches Löschen (sonst nervt es beim Punkte wählen)
+});
 document.addEventListener("keydown", (e)=>{ if(e.key === "Escape") clearRoute(); });
 
 document.addEventListener("mousedown",(e)=>{
@@ -886,20 +902,6 @@ document.addEventListener("mousedown",(e)=>{
 });
 map.on("movestart", closeCtx);
 map.on("zoomstart", closeCtx);
-
-document.addEventListener("change",e=>{
-  if(e.target?.matches('input[type="checkbox"]')){
-    if(e.target.classList.contains("countryChk")){
-      if(e.target.value==="all"&&e.target.checked) [...document.querySelectorAll(".countryChk")].forEach(x=>x.value!=="all"&&(x.checked=false));
-      if(e.target.value!=="all"&&e.target.checked) document.querySelector('.countryChk[value="all"]').checked=false;
-      updateCountryButtonLabel();
-    }
-    updateLayers();
-  }
-});
-
-countryDropdownBtn.addEventListener("click",()=>countryDropdownMenu.style.display=(countryDropdownMenu.style.display==="block"?"none":"block"));
-document.addEventListener("click",e=>{if(!countryDropdown.contains(e.target)) countryDropdownMenu.style.display="none"});
 
 /*** ===== SEARCH (Nominatim nur hier) ===== */
 searchInput.addEventListener("keydown",async e=>{
