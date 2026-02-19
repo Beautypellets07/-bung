@@ -48,9 +48,11 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 .hidden{display:none!important}
 
 /* Buttons im Firmen-Popup */
-.btnRow{display:flex;gap:8px;margin-top:8px}
+.btnRow{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
 .btn{border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;padding:6px 10px}
 .btn:hover{background:#fafafa}
+.btnDanger{border-color:#f0b4b4;background:#fff}
+.btnDanger:hover{background:#fff3f3}
 .small{font-size:12px;opacity:.75}
 
 /* ===== Modal: Firma hinzufügen (Taste F) ===== */
@@ -223,6 +225,7 @@ let buildToken = 0;
 const num=v=>{v=String(v??"").trim().replace(",",".");v=v.replace(/€/g,"").trim();const n=+v;return isFinite(n)?n:NaN};
 const lc=s=>String(s??"").toLowerCase().trim();
 const str=v=>String(v??"").trim();
+const uid=()=>Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 function isPellets(){ return currentUnit==="pellets"; }
 function sackAktiv(){
@@ -354,6 +357,23 @@ if(!Array.isArray(customFirms.pellets)) customFirms.pellets = [];
 if(!Array.isArray(customFirms.streusalz)) customFirms.streusalz = [];
 const saveCustom = ()=>localStorage.setItem(CUSTOM_KEY, JSON.stringify(customFirms));
 
+/* ✅ NEU: Löschen-Funktion für manuell hinzugefügte Firmen (F) */
+window.deleteCustomFirmById = async function(customId){
+  if(!customId) return;
+  const list = customFirms[currentUnit] || [];
+  const before = list.length;
+  customFirms[currentUnit] = list.filter(x => x && x._id !== customId);
+  saveCustom();
+
+  // schneller Rebuild (Sheets sind gecached)
+  if(before !== customFirms[currentUnit].length){
+    closeCtx();
+    clearRoute();
+    closeAddFirmModal();
+    await switchUnit(currentUnit);
+  }
+};
+
 let modalOverlay=null, modalEl=null, modalDrag=null;
 function isTypingTarget(el){
   if(!el) return false;
@@ -431,6 +451,7 @@ function openAddFirmModal(){
     }
 
     const obj = {
+      _id: uid(),              // ✅ NEU: ID fürs Löschen
       firma, ort,
       preis, preisSack: NaN,
       zert:"", sack:"", bigbag:"",
@@ -651,10 +672,17 @@ function openFirmPricePopup(firmObj, latlng){
     ? "Werkspreis (Streusalz)"
     : (isSack ? "Sackware-Preis" : "Werkspreis (Lose)");
 
+  /* ✅ NEU: Lösch-Button nur bei manuell (F) hinzugefügten Firmen */
+  const deleteBtn = (firmObj._custom && firmObj._id) ? `
+    <div class="btnRow" style="margin-top:10px">
+      <button class="btn btnDanger" onclick="deleteCustomFirmById('${firmObj._id}')">🗑️ Firma löschen</button>
+    </div>
+  ` : "";
+
   const html = `
     <div style="min-width:240px">
       <b>${firmObj.firma}</b><br>
-      <div class="small">${firmObj.ort}</div>
+      <div class="small">${firmObj.ort}${firmObj._custom ? " • ✚ Manuell" : ""}</div>
       <div style="margin-top:6px" class="small"><b>Tabellen ${label}:</b> ${baseTxt} €</div>
 
       <div style="margin-top:10px"><b>Preis manuell setzen</b></div>
@@ -665,6 +693,8 @@ function openFirmPricePopup(firmObj, latlng){
         <button class="btn" onclick="saveManualFirmPrice()">Speichern</button>
         <button class="btn" onclick="clearManualFirmPrice()">Löschen</button>
       </div>
+
+      ${deleteBtn}
     </div>
   `;
 
@@ -773,13 +803,16 @@ async function osrmDistKm(a,b){
   if(data?.routes?.length) return data.routes[0].distance/1000;
   return null;
 }
+
+/* ✅ wie vorher: Pellets 5% / Streusalz 20% */
 function calcDeliveredPrice(distKm, basePrice){
   const preisProKm = distKm < 250 ? 2.15 : 1.85;
   const berechnung = (distKm/24) * preisProKm;
-  const margeFaktor = (currentUnit === "streusalz") ? 1.20 : 1.05;
+  const margeFaktor = (currentUnit === "streusalz") ? 1.20 : 1.05;  // WIE VORHER
   const total = (berechnung + (basePrice||0)) * margeFaktor;
   return { total, preisProKm, margeFaktor };
 }
+
 function findFirmInLabels(aLabel,bLabel){
   return werke.find(w=>w.firma===aLabel) || werke.find(w=>w.firma===bLabel) || null;
 }
