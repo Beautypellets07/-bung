@@ -51,8 +51,6 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 .btnRow{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
 .btn{border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;padding:6px 10px}
 .btn:hover{background:#fafafa}
-.btnDanger{border-color:#f0b4b4;background:#fff}
-.btnDanger:hover{background:#fff3f3}
 .small{font-size:12px;opacity:.75}
 
 /* ===== Modal: Firma hinzufügen (Taste F) ===== */
@@ -357,23 +355,38 @@ if(!Array.isArray(customFirms.pellets)) customFirms.pellets = [];
 if(!Array.isArray(customFirms.streusalz)) customFirms.streusalz = [];
 const saveCustom = ()=>localStorage.setItem(CUSTOM_KEY, JSON.stringify(customFirms));
 
-/* ✅ NEU: Löschen-Funktion für manuell hinzugefügte Firmen (F) */
-window.deleteCustomFirmById = async function(customId){
+/* ✅ Migration: alte manuelle Firmen bekommen _id und _custom, damit Mittelklick-Löschen klappt */
+(function migrateCustomFirms(){
+  let changed = false;
+  for(const unit of ["pellets","streusalz"]){
+    if(!Array.isArray(customFirms[unit])) continue;
+    customFirms[unit] = customFirms[unit].map(f=>{
+      if(!f || typeof f !== "object") return f;
+      if(!f._id){ f._id = uid(); changed = true; }
+      if(f._custom !== true){ f._custom = true; changed = true; }
+      return f;
+    });
+  }
+  if(changed) saveCustom();
+})();
+
+/* ✅ Löschen per Funktion (wird vom Mittelklick benutzt) */
+async function deleteCustomFirmById(customId){
   if(!customId) return;
   const list = customFirms[currentUnit] || [];
   const before = list.length;
   customFirms[currentUnit] = list.filter(x => x && x._id !== customId);
   saveCustom();
 
-  // schneller Rebuild (Sheets sind gecached)
   if(before !== customFirms[currentUnit].length){
     closeCtx();
     clearRoute();
     closeAddFirmModal();
-    await switchUnit(currentUnit);
+    await switchUnit(currentUnit); // schneller Rebuild (Sheets sind gecached)
   }
-};
+}
 
+/*** ====== Modal: Firma hinzufügen ====== ***/
 let modalOverlay=null, modalEl=null, modalDrag=null;
 function isTypingTarget(el){
   if(!el) return false;
@@ -451,7 +464,7 @@ function openAddFirmModal(){
     }
 
     const obj = {
-      _id: uid(),              // ✅ NEU: ID fürs Löschen
+      _id: uid(),              // ✅ wichtig fürs Löschen
       firma, ort,
       preis, preisSack: NaN,
       zert:"", sack:"", bigbag:"",
@@ -672,13 +685,6 @@ function openFirmPricePopup(firmObj, latlng){
     ? "Werkspreis (Streusalz)"
     : (isSack ? "Sackware-Preis" : "Werkspreis (Lose)");
 
-  /* ✅ NEU: Lösch-Button nur bei manuell (F) hinzugefügten Firmen */
-  const deleteBtn = (firmObj._custom && firmObj._id) ? `
-    <div class="btnRow" style="margin-top:10px">
-      <button class="btn btnDanger" onclick="deleteCustomFirmById('${firmObj._id}')">🗑️ Firma löschen</button>
-    </div>
-  ` : "";
-
   const html = `
     <div style="min-width:240px">
       <b>${firmObj.firma}</b><br>
@@ -694,7 +700,7 @@ function openFirmPricePopup(firmObj, latlng){
         <button class="btn" onclick="clearManualFirmPrice()">Löschen</button>
       </div>
 
-      ${deleteBtn}
+      <div class="small" style="margin-top:8px">Tipp: ✚ Manuelle Firmen kannst du mit <b>Mittelklick</b> löschen.</div>
     </div>
   `;
 
@@ -727,6 +733,20 @@ function addFirmMarker(w){
     .on("contextmenu",(ev)=>{
       ev.originalEvent?.preventDefault?.();
       openFirmPricePopup(w, ev.latlng);
+    })
+    /* ✅ MITTELKLICK = Löschen (nur für _custom Firmen) */
+    .on("mousedown", async (ev)=>{
+      // Leaflet MouseEvent -> originalEvent enthält button
+      const btn = ev?.originalEvent?.button;
+      if(btn !== 1) return; // 1 = middle click
+
+      if(!(w && w._custom && w._id)) return; // nur manuell
+      ev.originalEvent?.preventDefault?.();
+
+      const ok = confirm(`Manuelle Firma löschen?\n\n${w.firma} (${w.ort})`);
+      if(!ok) return;
+
+      await deleteCustomFirmById(w._id);
     });
 
   const entry = {type:"firma",marker:cm,...w,country_code:c.country_code||"", _coord:{lat:c.lat,lon:c.lon}};
@@ -804,11 +824,11 @@ async function osrmDistKm(a,b){
   return null;
 }
 
-/* ✅ wie vorher: Pellets 5% / Streusalz 20% */
+/* ✅ WIE VORHER: Pellets 5% / Streusalz 20% */
 function calcDeliveredPrice(distKm, basePrice){
   const preisProKm = distKm < 250 ? 2.15 : 1.85;
   const berechnung = (distKm/24) * preisProKm;
-  const margeFaktor = (currentUnit === "streusalz") ? 1.20 : 1.05;  // WIE VORHER
+  const margeFaktor = (currentUnit === "streusalz") ? 1.20 : 1.05;
   const total = (berechnung + (basePrice||0)) * margeFaktor;
   return { total, preisProKm, margeFaktor };
 }
