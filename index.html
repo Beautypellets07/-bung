@@ -90,7 +90,7 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 .indexDock{
   position:absolute;
   left:12px;
-  bottom:300px;          /* ✅ höher (vorher 170/260) */
+  bottom:300px;
   z-index:2600;
   display:flex;
   align-items:flex-start;
@@ -251,11 +251,9 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
     <div class="indexHead">
       <div class="indexTitle" id="indexFirmTitle">Preisindex</div>
       <div class="indexControls">
-        <!-- ✅ Firma suchen -->
         <input id="indexFirmSearch" placeholder="Firma suchen…" autocomplete="off">
         <button id="indexFirmSearchBtn" type="button">Suchen</button>
 
-        <!-- ✅ Zeitraum -->
         <select id="indexRange">
           <option value="3">3 Monate</option>
           <option value="6">6 Monate</option>
@@ -372,10 +370,9 @@ const indexFirmSearchBtn = document.getElementById("indexFirmSearchBtn");
 let currentUnit = unitSelect.value;
 let buildToken = 0;
 
-// ✅ robust: entfernt alles außer Zahlen/.-/,
 const num=v=>{
   v=String(v??"").trim().replace(",",".");
-  v=v.replace(/[^0-9.\-]/g,"");   // <- wichtig
+  v=v.replace(/[^0-9.\-]/g,"");
   const n=+v;
   return isFinite(n)?n:NaN;
 };
@@ -517,8 +514,6 @@ function filterByMonths(arr, months){
   cutoff.setMonth(cutoff.getMonth() - m);
   return arr.filter(x=>x.date >= cutoff);
 }
-
-// ✅ Case-Insensitive Zugriff auf Headernamen
 function getCellCI(row, names){
   const keys = Object.keys(row||{});
   for(const want of names){
@@ -633,7 +628,6 @@ async function renderIndexForFirm(firmaName){
   chart.update();
 }
 
-// ✅ Suchfeld im Index-Header
 function doIndexSearch(){
   const name = str(indexFirmSearch.value);
   if(!name) return;
@@ -697,6 +691,13 @@ let werkePellets=null, werkeStreusalz=null, werke=[];
 let kundenPellets=null, kundenStreusalz=null, kunden=[];
 let alleMarker=[], selectedPoints=[], routeLine=null, searchMarker=null;
 let ctxEl=null, ctxCustomer=null;
+
+/* ✅ NEU: Such-Popup "fest" (bleibt auch wenn du über andere Firmen hoverst) */
+let searchPopup = null;
+function clearSearch(){
+  if(searchMarker){ try{ map.removeLayer(searchMarker);}catch(e){} searchMarker=null; }
+  if(searchPopup){ try{ map.closePopup(searchPopup);}catch(e){} searchPopup=null; }
+}
 
 function closeCtx(){ if(ctxEl){ctxEl.remove(); ctxEl=null;} ctxCustomer=null; }
 function stopEvt(el){
@@ -883,8 +884,8 @@ function parseFirmenArray(table){
   let nameIdx = findIndex(headers, ["firma","name","werk"]); if(nameIdx<0) nameIdx = 0;
   let ortIdx  = findIndex(headers, ["ort","stadt","standort","adresse","location"]); if(ortIdx<0) ortIdx = 1;
 
-  const preisIdx = 2;   // Spalte C
-  const standIdx = 3;   // Spalte D
+  const preisIdx = 2;
+  const standIdx = 3;
 
   let sackIdx = findIndex(headers, ["sackwarenpreis","sackwarepreis","preis_sack","sackpreis","preis sack"]);
   if(sackIdx<0) sackIdx = 4;
@@ -1087,8 +1088,6 @@ function addFirmMarker(w){
     .bindTooltip("",{sticky:true})
     .on("tooltipopen", async ()=>{
       cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code}));
-
-      // ✅ Preisindex für diese Firma aktualisieren (öffnet NICHT automatisch)
       await renderIndexForFirm(w.firma);
     })
     .on("click",()=>pickPoint(w.firma,{lat:c.lat,lon:c.lon}))
@@ -1143,7 +1142,7 @@ async function buildMap(){
 
   for(const m of alleMarker){ try{ map.removeLayer(m.marker); }catch(e){} }
   alleMarker=[];
-  if(searchMarker){ try{ map.removeLayer(searchMarker);}catch(e){} searchMarker=null; }
+  clearSearch();
 
   const bounds=L.latLngBounds();
 
@@ -1397,8 +1396,7 @@ async function runTargetSearch(type, targetPrice){
 /*** ===== LAYERS ===== */
 function updateLayers(){
   if(routeLine){map.removeLayer(routeLine);routeLine=null}
-  map.closePopup(); selectedPoints=[];
-  if(searchMarker){map.removeLayer(searchMarker);searchMarker=null}
+  selectedPoints=[];
 
   const selected=getSelectedCountries(), noCountry=(selected.length===1&&selected[0]==="all");
   const en=chkEnPlus.checked, din=chkDINplus.checked, sure=chkSURE.checked, cpp=chkCPP.checked, ohne=chkOhneZert.checked;
@@ -1477,6 +1475,7 @@ async function switchUnit(newUnit){
   closeCtx();
   clearRoute();
   closeAddFirmModal();
+  clearSearch();
 
   const baseWerke = await loadWerkeForUnit(currentUnit);
   const extra = (customFirms[currentUnit] || []);
@@ -1499,7 +1498,14 @@ map.on("click", (e)=>{
     return;
   }
 });
-document.addEventListener("keydown", (e)=>{ if(e.key === "Escape"){ closeAddFirmModal(); clearRoute(); } });
+document.addEventListener("keydown", (e)=>{
+  if(e.key === "Escape"){
+    closeAddFirmModal();
+    clearRoute();
+    closeCtx();
+    clearSearch();
+  }
+});
 
 document.addEventListener("mousedown",(e)=>{
   if(!ctxEl) return;
@@ -1559,7 +1565,7 @@ searchInput.addEventListener("keydown",async e=>{
   closeCtx();
   clearRoute();
   closeAddFirmModal();
-  if(searchMarker){ try{ map.removeLayer(searchMarker); }catch(err){} searchMarker=null; }
+  clearSearch();
 
   const q=lc(raw);
   const matches=alleMarker.filter(m=>{
@@ -1568,12 +1574,32 @@ searchInput.addEventListener("keydown",async e=>{
   });
 
   const bounds=L.latLngBounds();
-  matches.forEach((m,i)=>{
+
+  // ✅ Treffer aus der Tabelle: sichtbar machen + Bounds
+  matches.forEach((m)=>{
     if(!map.hasLayer(m.marker)) map.addLayer(m.marker);
     bounds.extend(m.marker.getLatLng());
-    if(i===0) m.marker.openTooltip?.();
   });
 
+  // ✅ "Festes" Popup auf dem ERSTEN Treffer (bleibt beim Hover über andere Marker)
+  if(matches.length){
+    const first = matches[0];
+    const ll = first.marker.getLatLng();
+    const content = (first.type==="firma")
+      ? tooltipFirma(first)
+      : `<b>${first.name}</b><br>${first.ort}`;
+
+    searchPopup = L.popup({
+      closeButton:true,
+      autoClose:false,
+      closeOnClick:false,
+      autoPan:false
+    }).setLatLng(ll).setContent(content);
+
+    searchPopup.openOn(map);
+  }
+
+  // ✅ Zusätzlich: Ortssuche via Nominatim (wenn es ein Ort ist)
   const geo = await geocodeOnce(raw);
   if(geo){
     const ll=[geo.lat,geo.lon];
@@ -1602,9 +1628,7 @@ searchInput.addEventListener("keydown",async e=>{
   await loadGeoCacheFile();
   refreshLegendThresholdUI();
 
-  // Chart direkt initialisieren
   ensureIndexChart();
-
   await switchUnit(unitSelect.value);
 })();
 </script>
