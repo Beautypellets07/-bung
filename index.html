@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 <style>
 html,body{height:100%;margin:0}#map{height:100%;width:100%}
@@ -54,32 +55,19 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 .small{font-size:12px;opacity:.75}
 
 /* ===== Modal: Firma hinzufügen (Taste F) ===== */
-.modalOverlay{
-  position:absolute; inset:0;
-  background:transparent;
-  z-index:8000;
-}
+.modalOverlay{ position:absolute; inset:0; background:transparent; z-index:8000; }
 .modal{
-  position:absolute;
-  z-index:9000;
-  width:320px;
-  background:#fff;
-  border:1px solid rgba(0,0,0,.10);
-  border-radius:12px;
+  position:absolute; z-index:9000; width:320px; background:#fff;
+  border:1px solid rgba(0,0,0,.10); border-radius:12px;
   box-shadow:0 16px 40px rgba(0,0,0,.22);
   font:14px/1.25 system-ui,Arial;
 }
 .modalHead{
-  padding:10px 12px;
-  display:flex; align-items:center; justify-content:space-between;
-  cursor:move;
-  border-bottom:1px solid #eee;
+  padding:10px 12px; display:flex; align-items:center; justify-content:space-between;
+  cursor:move; border-bottom:1px solid #eee;
 }
 .modalTitle{font-weight:700}
-.modalX{
-  border:1px solid #ddd;background:#fff;border-radius:10px;
-  cursor:pointer; padding:2px 10px; line-height:1.6;
-}
+.modalX{ border:1px solid #ddd;background:#fff;border-radius:10px; cursor:pointer; padding:2px 10px; line-height:1.6; }
 .modalBody{padding:12px}
 .modalBody .row{margin:10px 0}
 .modalBody input{
@@ -96,6 +84,88 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
   box-sizing:border-box;
   font:12px/1.2 system-ui, Arial;
   margin:0 4px;
+}
+
+/* ===== Preisindex Panel (Slide-out) ===== */
+.indexDock{
+  position:absolute;
+  left:12px;
+  bottom:170px;          /* sitzt über der Zertifikate-Box */
+  z-index:2600;
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+}
+.indexToggle{
+  width:28px;
+  height:44px;
+  border:1px solid #ddd;
+  background:#fff;
+  border-radius:10px;
+  cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,.12);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  user-select:none;
+}
+.indexToggle:hover{background:#fafafa}
+.indexToggle span{
+  display:block;
+  font-size:18px;
+  line-height:1;
+  opacity:.8;
+  transform:translateX(1px);
+}
+
+.indexPanel{
+  width:520px;
+  max-width:calc(100vw - 70px);
+  background:#fff;
+  border:1px solid rgba(0,0,0,.10);
+  border-radius:12px;
+  box-shadow:0 16px 40px rgba(0,0,0,.18);
+  overflow:hidden;
+  transform:translateX(-120%);
+  transition:transform .22s ease;
+}
+.indexPanel.open{ transform:translateX(0); }
+
+.indexHead{
+  padding:10px 12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  border-bottom:1px solid #eee;
+  font:14px/1.25 system-ui,Arial;
+}
+.indexTitle{
+  font-weight:700;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.indexControls{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+.indexControls select{
+  padding:6px 8px;
+  border:1px solid #ccc;
+  border-radius:8px;
+  outline:none;
+}
+.indexBody{
+  padding:10px 12px 12px;
+  height:260px;
+  box-sizing:border-box;
+}
+.indexNote{
+  font:12px/1.3 system-ui,Arial;
+  opacity:.75;
+  margin-top:8px;
 }
 </style>
 </head>
@@ -159,6 +229,30 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
   </div>
 </div>
 
+<!-- Preisindex (ausklappbar) -->
+<div class="indexDock" id="indexDock">
+  <button class="indexToggle" id="indexToggle" type="button" title="Preisindex öffnen/schließen">
+    <span id="indexArrow">›</span>
+  </button>
+
+  <div class="indexPanel" id="indexPanel">
+    <div class="indexHead">
+      <div class="indexTitle" id="indexFirmTitle">Preisindex</div>
+      <div class="indexControls">
+        <select id="indexRange">
+          <option value="3">3 Monate</option>
+          <option value="6">6 Monate</option>
+          <option value="12">12 Monate</option>
+        </select>
+      </div>
+    </div>
+    <div class="indexBody">
+      <canvas id="indexChart"></canvas>
+      <div class="indexNote" id="indexNote">Hover über die Linien: Werte + Differenz werden angezeigt.</div>
+    </div>
+  </div>
+</div>
+
 <!-- Farben + Kunden -->
 <div class="box legend" id="legendBox">
   <b>Filter Farben</b><br>
@@ -197,11 +291,17 @@ const sheetIdFirmen = "1fNUc0LJqBXxJdW1JRDfYxYORMuqeks_bHqp7zUq5Zmk";
 const sheetIdKunden = "1fK_rO1b2eI4sOvUKOufVgmd2lQ85KazPf5Kfm4Iia5I";
 const STREUSALZ_SHEET_NAME = "streusalz";
 
+// ✅ Preisindex-Historie Tabname
+const INDEX_SHEET_NAME = "index";
+
 const sheetUrlFirmenPellets   = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/export?format=csv&gid=0`;
 const sheetUrlKundenPellets   = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/export?format=csv&gid=0`;
 
 const sheetUrlFirmenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 const sheetUrlKundenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
+
+// ✅ Index History (aus Firmen-Sheet, Tab "index")
+const sheetUrlIndexHistory = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(INDEX_SHEET_NAME)}`;
 
 /*** ====== MAP ====== ***/
 const map=L.map("map").setView([51,11],5);
@@ -245,6 +345,14 @@ const thGreen = document.getElementById("thGreen");
 const thOrange = document.getElementById("thOrange");
 const thOrangeFromTxt = document.getElementById("thOrangeFromTxt");
 const thRedFromTxt = document.getElementById("thRedFromTxt");
+
+// Preisindex Panel DOM
+const indexToggle = document.getElementById("indexToggle");
+const indexPanel  = document.getElementById("indexPanel");
+const indexArrow  = document.getElementById("indexArrow");
+const indexRange  = document.getElementById("indexRange");
+const indexFirmTitle = document.getElementById("indexFirmTitle");
+const indexNote = document.getElementById("indexNote");
 
 /*** ====== STATE / HELPERS ====== ***/
 let currentUnit = unitSelect.value;
@@ -341,6 +449,159 @@ function getEffectiveFirmPrice(m){
 function getEffectiveFirmColor(m){
   const { price, hasReal } = getEffectiveFirmPrice(m);
   return colorForPrice(price, !hasReal);
+}
+
+/*** ====== PREISINDEX PANEL + CHART ====== ***/
+let indexOpen = false;
+let indexChart = null;
+let historyRows = null;
+let historyByFirm = {};
+let activeIndexFirm = null;
+
+function setIndexOpen(v){
+  indexOpen = !!v;
+  indexPanel.classList.toggle("open", indexOpen);
+  indexArrow.textContent = indexOpen ? "‹" : "›";
+}
+indexToggle.addEventListener("click", ()=> setIndexOpen(!indexOpen));
+indexRange.addEventListener("change", ()=>{ if(activeIndexFirm) renderIndexForFirm(activeIndexFirm); });
+
+function parseDateFlex(s){
+  s = str(s);
+  if(!s) return null;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)){
+    const d = new Date(s+"T00:00:00");
+    return isNaN(+d) ? null : d;
+  }
+  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/);
+  if(m){
+    let y = +m[3];
+    if(y < 100) y = 2000 + y;
+    const d = new Date(y, (+m[2]-1), +m[1]);
+    return isNaN(+d) ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(+d) ? null : d;
+}
+function formatLabelDate(d){
+  const dd = String(d.getDate()).padStart(2,"0");
+  const mm = String(d.getMonth()+1).padStart(2,"0");
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${dd}.${mm}.${yy}`;
+}
+function filterByMonths(arr, months){
+  if(!arr || !arr.length) return [];
+  const m = +months || 3;
+  const last = arr[arr.length-1].date;
+  const cutoff = new Date(last);
+  cutoff.setMonth(cutoff.getMonth() - m);
+  return arr.filter(x=>x.date >= cutoff);
+}
+
+async function loadIndexHistoryOnce(){
+  if(historyRows) return;
+
+  historyRows = await new Promise(res=>Papa.parse(sheetUrlIndexHistory,{
+    download:true, header:true, skipEmptyLines:true,
+    complete:r=>{ res(r.data||[]) },
+    error:_=>res([])
+  }));
+
+  historyByFirm = {};
+  for(const row of historyRows){
+    const firm = lc(row.Firma ?? row.firma ?? row.Name ?? row.name ?? "");
+    const dateRaw = row.Datum ?? row.datum ?? row.Date ?? row.date ?? "";
+    const loseRaw = row.LosePreis ?? row.losepreis ?? row.Lose ?? row.lose ?? "";
+    const sackRaw = row.SackPreis ?? row.sackpreis ?? row.Sack ?? row.sack ?? "";
+
+    if(!firm) continue;
+    const d = parseDateFlex(dateRaw);
+    if(!d) continue;
+
+    const o = { date: d, lose: num(loseRaw), sack: num(sackRaw) };
+    if(!historyByFirm[firm]) historyByFirm[firm] = [];
+    historyByFirm[firm].push(o);
+  }
+  for(const k of Object.keys(historyByFirm)){
+    historyByFirm[k].sort((a,b)=>a.date-b.date);
+  }
+}
+
+function ensureIndexChart(){
+  if(indexChart) return indexChart;
+
+  const ctx = document.getElementById("indexChart").getContext("2d");
+  indexChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        { label: "Lose Ware", data: [], tension: 0.25, pointRadius: 0, borderWidth: 3 },
+        { label: "Sackware", data: [], tension: 0.25, pointRadius: 0, borderWidth: 3 }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false }, // ✅ Hover über Linien
+      plugins: {
+        legend: { display: true },
+        tooltip: {
+          callbacks: {
+            afterBody: (items)=>{
+              const a = items?.[0]?.parsed?.y;
+              const b = items?.[1]?.parsed?.y;
+              if(isFinite(a) && isFinite(b)){
+                const diff = (b - a);
+                const sign = diff>=0 ? "+" : "";
+                return `Differenz (Sack - Lose): ${sign}${diff.toFixed(2)} €`;
+              }
+              return "";
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          ticks: {
+            callback: (v)=> `${Math.round(+v)} €`
+          }
+        }
+      }
+    }
+  });
+
+  return indexChart;
+}
+
+async function renderIndexForFirm(firmaName){
+  await loadIndexHistoryOnce();
+
+  activeIndexFirm = firmaName;
+  const key = lc(firmaName);
+  const rows = historyByFirm[key] || [];
+
+  indexFirmTitle.textContent = firmaName ? `Preisindex – ${firmaName}` : "Preisindex";
+  const chart = ensureIndexChart();
+
+  if(!rows.length){
+    chart.data.labels = [];
+    chart.data.datasets[0].data = [];
+    chart.data.datasets[1].data = [];
+    chart.update();
+    indexNote.textContent = "Für diese Firma gibt es noch keine Historie im Tab „index“.";
+    return;
+  }
+
+  const months = indexRange.value;
+  const use = filterByMonths(rows, months);
+
+  chart.data.labels = use.map(x=>formatLabelDate(x.date));
+  chart.data.datasets[0].data = use.map(x=>isFinite(x.lose)?x.lose:null);
+  chart.data.datasets[1].data = use.map(x=>isFinite(x.sack)?x.sack:null);
+  chart.update();
+
+  indexNote.textContent = "Hover über die Linien: Werte + Differenz werden angezeigt.";
 }
 
 /*** ====== GEO CACHE (3 Quellen) ====== ***/
@@ -525,7 +786,7 @@ function openAddFirmModal(){
       _id: uid(),
       firma, ort,
       preis, preisSack: NaN,
-      stand: "",               // ✅ damit Tooltip später nicht crasht
+      stand: "",
       zert:"", sack:"", bigbag:"",
       _preisOrig: preis, _preisSackOrig: NaN,
       keinPreisWerk:false, keinPreisSack:true,
@@ -576,7 +837,7 @@ function findIndex(headers, cands){
   return hs.findIndex(h=>cs.includes(h));
 }
 
-/* ✅ HIER: Stand = Spalte D (Index 3) */
+/* ✅ Stand = Spalte D (Index 3) */
 function parseFirmenArray(table){
   if(!table || table.length<2) return [];
   const headers=(table[0]||[]).map(x=>str(x));
@@ -586,7 +847,7 @@ function parseFirmenArray(table){
   let ortIdx  = findIndex(headers, ["ort","stadt","standort","adresse","location"]); if(ortIdx<0) ortIdx = 1;
 
   const preisIdx = 2;   // Spalte C
-  const standIdx = 3;   // ✅ Spalte D
+  const standIdx = 3;   // Spalte D
 
   // Sackpreis: Header suchen, sonst Fallback Spalte E (Index 4)
   let sackIdx = findIndex(headers, ["sackwarenpreis","sackwarepreis","preis_sack","sackpreis","preis sack"]);
@@ -603,14 +864,14 @@ function parseFirmenArray(table){
     .map(r=>{
       const p = num(r[preisIdx]);
       const ps = num(r[sackIdx]);
-      const st = str(r[standIdx]); // ✅ Stand Text
+      const st = str(r[standIdx]);
 
       return {
         firma: str(r[nameIdx]),
         ort: str(r[ortIdx]),
         preis: p,
         preisSack: ps,
-        stand: st, // ✅ wird im Tooltip genutzt
+        stand: st,
         zert: zertIdx>=0 ? str(r[zertIdx]) : "",
         sack: sackTxtIdx>=0 ? str(r[sackTxtIdx]) : "",
         bigbag: bigBagIdx>=0 ? str(r[bigBagIdx]) : "",
@@ -706,15 +967,12 @@ function updateCountryButtonLabel(){
 /*** ====== TOOLTIP (Stand hinter Preis) ====== ***/
 function tooltipFirma(m){
   const {price, isManual} = getEffectiveFirmPrice(m);
-
   const preisTxt = (isFinite(price) && price>0) ? `${price.toFixed(2)} €` : "–";
-  const standTxt = (str(m.stand)) ? ` (${str(m.stand)})` : ""; // ✅ Stand direkt hinter Preis
-
+  const standTxt = (str(m.stand)) ? ` (${str(m.stand)})` : "";
   const manTxt = isManual ? `<br><span class="small"><b>Manuell:</b> ${price.toFixed(2)} €</span>` : "";
   const z=m.zert?`<br><b>Zertifikat:</b> ${m.zert}`:"";
   const s=(isPellets() && m.sack)?`<br><b>Sackware:</b> ${m.sack}`:"";
   const bb=(isPellets() && lc(m.bigbag)==="ja")?`<br><b>Sackware:</b> Big Bag`:"";
-
   return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${standTxt}${manTxt}${z}${s}${bb}`;
 }
 
@@ -791,7 +1049,12 @@ function addFirmMarker(w){
 
   const cm=L.circleMarker([c.lat,c.lon],{radius:8,color:farbe,fillColor:farbe,fillOpacity:.85})
     .bindTooltip("",{sticky:true})
-    .on("tooltipopen",()=>cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code})))
+    .on("tooltipopen", async ()=>{
+      cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code}));
+
+      // ✅ Preisindex für diese Firma aktualisieren
+      await renderIndexForFirm(w.firma);
+    })
     .on("click",()=>pickPoint(w.firma,{lat:c.lat,lon:c.lon}))
     .on("contextmenu",(ev)=>{
       ev.originalEvent?.preventDefault?.();
@@ -1108,7 +1371,6 @@ function updateLayers(){
   const wantF = isPellets() ? chkSackFireflies.checked : false;
   const want15 = isPellets() ? chkSack15kg.checked : false;
   const wantBB = isPellets() ? chkBigBag.checked : false;
-
   const useSack = isPellets() && (wantF || want15 || wantBB);
 
   const showPelletK = isPellets() ? chkKunden.checked : false;
@@ -1131,12 +1393,7 @@ function updateLayers(){
       const hasF=s.includes("fireflies");
       const has15=s.includes("15 kg")||s.includes("15kg");
       const hasBB=lc(m.bigbag)==="ja";
-
-      const anyMatch =
-        (wantF && hasF) ||
-        (want15 && has15) ||
-        (wantBB && hasBB);
-
+      const anyMatch = (wantF && hasF) || (want15 && has15) || (wantBB && hasBB);
       if(!anyMatch) continue;
     }
 
@@ -1198,6 +1455,7 @@ unitSelect.addEventListener("change", async ()=>{ await switchUnit(unitSelect.va
 /*** ===== EVENTS ===== */
 map.on("click", (e)=>{
   if(ctxEl) return;
+
   if(routeLine){
     const t = e.originalEvent?.target;
     if(t && (t.tagName === "path" || t.closest?.("path"))) return;
@@ -1308,6 +1566,10 @@ searchInput.addEventListener("keydown",async e=>{
   await loadGeoCacheFile();
 
   refreshLegendThresholdUI();
+
+  // Chart erstmal initialisieren (leer) damit es sofort “ready” ist
+  ensureIndexChart();
+
   await switchUnit(unitSelect.value);
 })();
 </script>
