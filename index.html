@@ -462,9 +462,31 @@ function setIndexOpen(v){
   indexOpen = !!v;
   indexPanel.classList.toggle("open", indexOpen);
   indexArrow.textContent = indexOpen ? "‹" : "›";
+
+  // ✅ wichtig: Chart kann sonst "0px" breit sein, wenn Panel zu war
+  if(indexOpen && indexChart){
+    setTimeout(()=>{ try{ indexChart.resize(); }catch(e){} }, 0);
+  }
 }
 indexToggle.addEventListener("click", ()=> setIndexOpen(!indexOpen));
 indexRange.addEventListener("change", ()=>{ if(activeIndexFirm) renderIndexForFirm(activeIndexFirm); });
+
+// ✅ normalize (damit Firmen-Namen sicher matchen)
+function normalizeFirmKey(name){
+  return lc(String(name||"")).replace(/\s+/g," ").trim();
+}
+
+// ✅ Öffnen + Rendern (bei Klick/Rechtsklick)
+async function showIndexForFirm(firma){
+  if(!firma) return;
+  setIndexOpen(true);
+  const chart = ensureIndexChart();
+  try{ chart.resize(); }catch(e){}
+  requestAnimationFrame(async ()=>{
+    await renderIndexForFirm(firma);
+    try{ chart.resize(); }catch(e){}
+  });
+}
 
 function parseDateFlex(s){
   s = str(s);
@@ -509,7 +531,7 @@ async function loadIndexHistoryOnce(){
 
   historyByFirm = {};
   for(const row of historyRows){
-    const firm = lc(row.Firma ?? row.firma ?? row.Name ?? row.name ?? "");
+    const firm = normalizeFirmKey(row.Firma ?? row.firma ?? row.Name ?? row.name ?? "");
     const dateRaw = row.Datum ?? row.datum ?? row.Date ?? row.date ?? "";
     const loseRaw = row.LosePreis ?? row.losepreis ?? row.Lose ?? row.lose ?? "";
     const sackRaw = row.SackPreis ?? row.sackpreis ?? row.Sack ?? row.sack ?? "";
@@ -543,7 +565,7 @@ function ensureIndexChart(){
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      interaction: { mode: "index", intersect: false }, // ✅ Hover über Linien
+      interaction: { mode: "index", intersect: false },
       plugins: {
         legend: { display: true },
         tooltip: {
@@ -562,11 +584,7 @@ function ensureIndexChart(){
         }
       },
       scales: {
-        y: {
-          ticks: {
-            callback: (v)=> `${Math.round(+v)} €`
-          }
-        }
+        y: { ticks: { callback: (v)=> `${Math.round(+v)} €` } }
       }
     }
   });
@@ -578,7 +596,7 @@ async function renderIndexForFirm(firmaName){
   await loadIndexHistoryOnce();
 
   activeIndexFirm = firmaName;
-  const key = lc(firmaName);
+  const key = normalizeFirmKey(firmaName);
   const rows = historyByFirm[key] || [];
 
   indexFirmTitle.textContent = firmaName ? `Preisindex – ${firmaName}` : "Preisindex";
@@ -1052,12 +1070,20 @@ function addFirmMarker(w){
     .on("tooltipopen", async ()=>{
       cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code}));
 
-      // ✅ Preisindex für diese Firma aktualisieren
-      await renderIndexForFirm(w.firma);
+      // ✅ Preisindex für diese Firma aktualisieren (Hover)
+      await showIndexForFirm(w.firma);
     })
-    .on("click",()=>pickPoint(w.firma,{lat:c.lat,lon:c.lon}))
-    .on("contextmenu",(ev)=>{
+    .on("click", async ()=>{
+      // ✅ Preisindex auch bei Klick (damit immer was kommt)
+      await showIndexForFirm(w.firma);
+      pickPoint(w.firma,{lat:c.lat,lon:c.lon});
+    })
+    .on("contextmenu", async (ev)=>{
       ev.originalEvent?.preventDefault?.();
+
+      // ✅ Preisindex auch bei Rechtsklick
+      await showIndexForFirm(w.firma);
+
       openFirmPricePopup(w, ev.latlng);
     })
     .on("mousedown", async (ev)=>{
