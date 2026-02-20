@@ -86,7 +86,7 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
   width:100%; padding:8px 10px; border:1px solid #ccc; border-radius:8px; outline:none; box-sizing:border-box;
 }
 
-/* ===== NEU: Inputs für Farb-Grenzen in der Legende ===== */
+/* ===== Inputs für Farb-Grenzen in der Legende ===== */
 .thInp{
   width:70px;
   padding:2px 6px;
@@ -163,7 +163,6 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 <div class="box legend" id="legendBox">
   <b>Filter Farben</b><br>
 
-  <!-- ✅ NEU: Grenzen editierbar + bleiben gespeichert -->
   <label>
     <input type="checkbox" id="chkGruen" checked>
     🟢 ≤ <input class="thInp" id="thGreen" type="number" step="0.01"> €
@@ -242,7 +241,6 @@ const chkSackKunden = document.getElementById("chkSackKunden");
 const chkSonstigeKunden = document.getElementById("chkSonstigeKunden");
 const chkKundenStreusalz = document.getElementById("chkKundenStreusalz");
 
-/* ✅ NEU: Inputs / Texte für Schwellenwerte */
 const thGreen = document.getElementById("thGreen");
 const thOrange = document.getElementById("thOrange");
 const thOrangeFromTxt = document.getElementById("thOrangeFromTxt");
@@ -262,7 +260,7 @@ function sackAktiv(){
   return isPellets() && (chkSackFireflies.checked || chkSack15kg.checked || chkBigBag.checked);
 }
 
-/*** ====== NEU: Farb-Schwellen (editierbar, gespeichert) ====== ***/
+/*** ====== FARBSCHWELLEN (editierbar + gespeichert) ====== ***/
 const THRESH_KEY = "colorThresholds_EU_v1";
 let thresholds = JSON.parse(localStorage.getItem(THRESH_KEY) || "{}");
 const saveThresholds = ()=>localStorage.setItem(THRESH_KEY, JSON.stringify(thresholds));
@@ -276,16 +274,13 @@ function ensureThresholdObj(){
   if(!thresholds[currentUnit]) thresholds[currentUnit] = {};
   const pt = priceTypeKey();
   if(!thresholds[currentUnit][pt]) thresholds[currentUnit][pt] = { greenMax: 260, orangeMax: 285 };
-  // Fallback / Reparatur
   const t = thresholds[currentUnit][pt];
   if(!isFinite(+t.greenMax) || +t.greenMax<=0) t.greenMax = 260;
   if(!isFinite(+t.orangeMax) || +t.orangeMax<=0) t.orangeMax = 285;
   if(+t.orangeMax <= +t.greenMax) t.orangeMax = +t.greenMax + 1;
   return t;
 }
-function getThresholds(){
-  return ensureThresholdObj();
-}
+function getThresholds(){ return ensureThresholdObj(); }
 function setThresholds(greenMax, orangeMax){
   const pt = priceTypeKey();
   ensureThresholdObj();
@@ -300,8 +295,6 @@ function refreshLegendThresholdUI(){
   thOrangeFromTxt.textContent = (+t.greenMax).toFixed(2);
   thRedFromTxt.textContent = (+t.orangeMax).toFixed(2);
 }
-
-/* 🔥 Dynamische Farbe anhand Schwellen */
 function colorForPrice(p,kein){
   const t = getThresholds();
   const g = +t.greenMax;
@@ -421,13 +414,12 @@ function stopEvt(el){
 
 /*** ====== CUSTOM FIRMS (Taste F) ====== ***/
 const CUSTOM_KEY = "customFirms_EU_v1";
-let customFirms = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "{}"); // { pellets:[], streusalz:[] }
+let customFirms = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "{}");
 if(!customFirms || typeof customFirms!=="object") customFirms = {};
 if(!Array.isArray(customFirms.pellets)) customFirms.pellets = [];
 if(!Array.isArray(customFirms.streusalz)) customFirms.streusalz = [];
 const saveCustom = ()=>localStorage.setItem(CUSTOM_KEY, JSON.stringify(customFirms));
 
-/* ✅ Migration: alte manuelle Firmen bekommen _id und _custom */
 (function migrateCustomFirms(){
   let changed = false;
   for(const unit of ["pellets","streusalz"]){
@@ -442,10 +434,8 @@ const saveCustom = ()=>localStorage.setItem(CUSTOM_KEY, JSON.stringify(customFir
   if(changed) saveCustom();
 })();
 
-/* ✅ Sofort löschen per Mittelklick */
 async function deleteCustomFirmById(customId){
   if(!customId) return;
-
   const list = customFirms[currentUnit] || [];
   customFirms[currentUnit] = list.filter(x => x && x._id !== customId);
   saveCustom();
@@ -524,7 +514,6 @@ function openAddFirmModal(){
       return;
     }
 
-    // Koordinaten (Cache -> sonst Nominatim einmal)
     let c = getCoordForPlace(ort);
     if(!c){
       const g = await geocodeOnce(ort);
@@ -536,6 +525,7 @@ function openAddFirmModal(){
       _id: uid(),
       firma, ort,
       preis, preisSack: NaN,
+      stand: "",               // ✅ damit Tooltip später nicht crasht
       zert:"", sack:"", bigbag:"",
       _preisOrig: preis, _preisSackOrig: NaN,
       keinPreisWerk:false, keinPreisSack:true,
@@ -546,17 +536,14 @@ function openAddFirmModal(){
       _custom: true
     };
 
-    // speichern pro Unit
     customFirms[currentUnit].push(obj);
     saveCustom();
 
-    // sofort als Marker hinzufügen (ohne rebuild)
     addFirmMarker(obj);
     updateLayers();
     closeAddFirmModal();
   });
 
-  // Drag
   modalDrag = modalEl.querySelector("#addFirmDrag");
   let dragging=false, sx=0, sy=0, ox=0, oy=0;
   modalDrag.addEventListener("mousedown",(e)=>{
@@ -589,6 +576,7 @@ function findIndex(headers, cands){
   return hs.findIndex(h=>cs.includes(h));
 }
 
+/* ✅ HIER: Stand = Spalte D (Index 3) */
 function parseFirmenArray(table){
   if(!table || table.length<2) return [];
   const headers=(table[0]||[]).map(x=>str(x));
@@ -597,14 +585,16 @@ function parseFirmenArray(table){
   let nameIdx = findIndex(headers, ["firma","name","werk"]); if(nameIdx<0) nameIdx = 0;
   let ortIdx  = findIndex(headers, ["ort","stadt","standort","adresse","location"]); if(ortIdx<0) ortIdx = 1;
 
-  const preisIdx = 2; // Spalte C
+  const preisIdx = 2;   // Spalte C
+  const standIdx = 3;   // ✅ Spalte D
+
+  // Sackpreis: Header suchen, sonst Fallback Spalte E (Index 4)
   let sackIdx = findIndex(headers, ["sackwarenpreis","sackwarepreis","preis_sack","sackpreis","preis sack"]);
-  if(sackIdx<0) sackIdx = 3;
+  if(sackIdx<0) sackIdx = 4;
 
   let zertIdx = findIndex(headers, ["zertifikat","zertifikate","zert","cert"]); if(zertIdx<0) zertIdx = -1;
   let sackTxtIdx = findIndex(headers, ["sackware","sack","bag","bagged"]); if(sackTxtIdx<0) sackTxtIdx = -1;
 
-  // ✅ Big Bag (Spalte M) – erst Header suchen, sonst Fallback Index 12
   let bigBagIdx = findIndex(headers, ["big bag","bigbag","big_bag","big-bag"]);
   if(bigBagIdx<0 && headers.length>=13) bigBagIdx = 12; // Spalte M
 
@@ -613,11 +603,14 @@ function parseFirmenArray(table){
     .map(r=>{
       const p = num(r[preisIdx]);
       const ps = num(r[sackIdx]);
+      const st = str(r[standIdx]); // ✅ Stand Text
+
       return {
         firma: str(r[nameIdx]),
         ort: str(r[ortIdx]),
         preis: p,
         preisSack: ps,
+        stand: st, // ✅ wird im Tooltip genutzt
         zert: zertIdx>=0 ? str(r[zertIdx]) : "",
         sack: sackTxtIdx>=0 ? str(r[sackTxtIdx]) : "",
         bigbag: bigBagIdx>=0 ? str(r[bigBagIdx]) : "",
@@ -710,15 +703,19 @@ function updateCountryButtonLabel(){
   countryDropdownBtn.textContent=s.map(c=>names[c]||c.toUpperCase()).join(", ");
 }
 
-/*** ====== TOOLTIP ====== ***/
+/*** ====== TOOLTIP (Stand hinter Preis) ====== ***/
 function tooltipFirma(m){
   const {price, isManual} = getEffectiveFirmPrice(m);
+
   const preisTxt = (isFinite(price) && price>0) ? `${price.toFixed(2)} €` : "–";
+  const standTxt = (str(m.stand)) ? ` (${str(m.stand)})` : ""; // ✅ Stand direkt hinter Preis
+
   const manTxt = isManual ? `<br><span class="small"><b>Manuell:</b> ${price.toFixed(2)} €</span>` : "";
   const z=m.zert?`<br><b>Zertifikat:</b> ${m.zert}`:"";
   const s=(isPellets() && m.sack)?`<br><b>Sackware:</b> ${m.sack}`:"";
   const bb=(isPellets() && lc(m.bigbag)==="ja")?`<br><b>Sackware:</b> Big Bag`:"";
-  return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${manTxt}${z}${s}${bb}`;
+
+  return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${standTxt}${manTxt}${z}${s}${bb}`;
 }
 
 /*** ====== FIRMA-POPUP (RECHTSKLICK) ====== ***/
@@ -784,7 +781,6 @@ function openFirmPricePopup(firmObj, latlng){
 
 /*** ====== MARKER HELPERS ====== ***/
 function addFirmMarker(w){
-  // coord: custom -> direkt, sonst cache
   const c = (w && w._coord && isFinite(+w._coord.lat) && isFinite(+w._coord.lon))
     ? {lat:+w._coord.lat, lon:+w._coord.lon, country_code:(w.country_code||"").toLowerCase()}
     : getCoordForPlace(w.ort);
@@ -801,11 +797,10 @@ function addFirmMarker(w){
       ev.originalEvent?.preventDefault?.();
       openFirmPricePopup(w, ev.latlng);
     })
-    // ✅ Mittelklick = sofort löschen (nur manuelle Firmen)
     .on("mousedown", async (ev)=>{
       const btn = ev?.originalEvent?.button;
-      if(btn !== 1) return;                 // 1 = Mittelklick
-      if(!(w && w._custom && w._id)) return; // nur manuell
+      if(btn !== 1) return;
+      if(!(w && w._custom && w._id)) return;
       ev.originalEvent?.preventDefault?.();
       await deleteCustomFirmById(w._id);
     });
@@ -853,14 +848,12 @@ async function buildMap(){
 
   const bounds=L.latLngBounds();
 
-  // Firmen
   for(const w of werke){
     if(myToken !== buildToken) return;
     const added = addFirmMarker(w);
     if(added) bounds.extend([added._coord.lat, added._coord.lon]);
   }
 
-  // Kunden
   for(const k of kunden){
     if(myToken !== buildToken) return;
     const added = addCustomerMarker(k);
@@ -1048,7 +1041,6 @@ async function runTargetSearch(type, targetPrice){
     })
     .filter(m => m.hasReal && isFinite(m.base) && m.base>0);
 
-  // ✅ Wenn Big Bag gewählt: nur Firmen mit BigBag = ja
   if (isPellets() && type === "bigbag") {
     firmsVisible = firmsVisible.filter(m => lc(m.bigbag) === "ja");
   }
@@ -1134,7 +1126,6 @@ function updateLayers(){
     if(m.type==="sonstige"){ if(showPelletS) map.addLayer(m.marker); continue; }
     if(m.type==="streukunde"){ if(showStreuK) map.addLayer(m.marker); continue; }
 
-    // Sackware Filter (FireFlies/15kg/BigBag) – OR Logik
     if(useSack){
       const s=lc(m.sack).replace(/\s+/g," ");
       const hasF=s.includes("fireflies");
@@ -1202,14 +1193,11 @@ async function switchUnit(newUnit){
 
   await buildMap();
 }
-unitSelect.addEventListener("change", async ()=>{
-  await switchUnit(unitSelect.value);
-});
+unitSelect.addEventListener("change", async ()=>{ await switchUnit(unitSelect.value); });
 
 /*** ===== EVENTS ===== */
 map.on("click", (e)=>{
   if(ctxEl) return;
-
   if(routeLine){
     const t = e.originalEvent?.target;
     if(t && (t.tagName === "path" || t.closest?.("path"))) return;
@@ -1227,7 +1215,6 @@ document.addEventListener("mousedown",(e)=>{
 map.on("movestart", closeCtx);
 map.on("zoomstart", closeCtx);
 
-/* ✅ NEU: Schwellen speichern, wenn du im Feld etwas änderst */
 function clampThresholdsFromInputs(){
   let g = num(thGreen.value);
   let o = num(thOrange.value);
@@ -1251,7 +1238,6 @@ document.addEventListener("change",e=>{
       updateCountryButtonLabel();
     }
 
-    /* ✅ Wenn Sackware-Filter gewechselt wird, sind wir evtl. in anderem Preis-Modus (lose/sack) */
     if(e.target===chkSackFireflies || e.target===chkSack15kg || e.target===chkBigBag){
       refreshLegendThresholdUI();
     }
@@ -1321,9 +1307,7 @@ searchInput.addEventListener("keydown",async e=>{
 
   await loadGeoCacheFile();
 
-  /* ✅ Legende initial mit gespeicherten Werten füllen */
   refreshLegendThresholdUI();
-
   await switchUnit(unitSelect.value);
 })();
 </script>
