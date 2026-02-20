@@ -90,7 +90,7 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 .indexDock{
   position:absolute;
   left:12px;
-  bottom:170px;          /* sitzt über der Zertifikate-Box */
+  bottom:220px;          /* ✅ etwas höher */
   z-index:2600;
   display:flex;
   align-items:flex-start;
@@ -119,7 +119,7 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 }
 
 .indexPanel{
-  width:520px;
+  width:560px;
   max-width:calc(100vw - 70px);
   background:#fff;
   border:1px solid rgba(0,0,0,.10);
@@ -140,12 +140,48 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
   border-bottom:1px solid #eee;
   font:14px/1.25 system-ui,Arial;
 }
+
+.indexLeft{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+  flex:1;
+}
+
 .indexTitle{
   font-weight:700;
   white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
 }
+
+.indexFirmSearchWrap{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex:1;
+  min-width:0;
+}
+
+#indexFirmSearch{
+  width:100%;
+  min-width:140px;
+  padding:6px 8px;
+  border:1px solid #ccc;
+  border-radius:8px;
+  outline:none;
+  box-sizing:border-box;
+}
+
+.indexGo{
+  border:1px solid #ddd;
+  background:#fff;
+  border-radius:8px;
+  cursor:pointer;
+  padding:6px 10px;
+  white-space:nowrap;
+}
+.indexGo:hover{background:#fafafa}
+
 .indexControls{
   display:flex;
   gap:8px;
@@ -237,7 +273,17 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 
   <div class="indexPanel" id="indexPanel">
     <div class="indexHead">
-      <div class="indexTitle" id="indexFirmTitle">Preisindex</div>
+      <div class="indexLeft">
+        <div class="indexTitle" id="indexFirmTitle">Preisindex</div>
+
+        <!-- ✅ Suchfeld neben Preisindex -->
+        <div class="indexFirmSearchWrap">
+          <input id="indexFirmSearch" list="indexFirmList" placeholder="Firma suchen…">
+          <datalist id="indexFirmList"></datalist>
+          <button class="indexGo" id="indexFirmGo" type="button">Suchen</button>
+        </div>
+      </div>
+
       <div class="indexControls">
         <select id="indexRange">
           <option value="3">3 Monate</option>
@@ -248,7 +294,7 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
     </div>
     <div class="indexBody">
       <canvas id="indexChart"></canvas>
-      <div class="indexNote" id="indexNote">Hover über die Linien: Werte + Differenz werden angezeigt.</div>
+      <div class="indexNote" id="indexNote">Tipp: Firma oben suchen → Pfeil öffnen → Linie sehen.</div>
     </div>
   </div>
 </div>
@@ -290,8 +336,6 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 const sheetIdFirmen = "1fNUc0LJqBXxJdW1JRDfYxYORMuqeks_bHqp7zUq5Zmk";
 const sheetIdKunden = "1fK_rO1b2eI4sOvUKOufVgmd2lQ85KazPf5Kfm4Iia5I";
 const STREUSALZ_SHEET_NAME = "streusalz";
-
-// ✅ Preisindex-Historie Tabname
 const INDEX_SHEET_NAME = "index";
 
 const sheetUrlFirmenPellets   = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/export?format=csv&gid=0`;
@@ -300,7 +344,6 @@ const sheetUrlKundenPellets   = `https://docs.google.com/spreadsheets/d/${sheetI
 const sheetUrlFirmenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 const sheetUrlKundenStreusalz = `https://docs.google.com/spreadsheets/d/${sheetIdKunden}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(STREUSALZ_SHEET_NAME)}`;
 
-// ✅ Index History (aus Firmen-Sheet, Tab "index")
 const sheetUrlIndexHistory = `https://docs.google.com/spreadsheets/d/${sheetIdFirmen}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(INDEX_SHEET_NAME)}`;
 
 /*** ====== MAP ====== ***/
@@ -353,6 +396,9 @@ const indexArrow  = document.getElementById("indexArrow");
 const indexRange  = document.getElementById("indexRange");
 const indexFirmTitle = document.getElementById("indexFirmTitle");
 const indexNote = document.getElementById("indexNote");
+const indexFirmSearch = document.getElementById("indexFirmSearch");
+const indexFirmGo = document.getElementById("indexFirmGo");
+const indexFirmList = document.getElementById("indexFirmList");
 
 /*** ====== STATE / HELPERS ====== ***/
 let currentUnit = unitSelect.value;
@@ -462,31 +508,9 @@ function setIndexOpen(v){
   indexOpen = !!v;
   indexPanel.classList.toggle("open", indexOpen);
   indexArrow.textContent = indexOpen ? "‹" : "›";
-
-  // ✅ wichtig: Chart kann sonst "0px" breit sein, wenn Panel zu war
-  if(indexOpen && indexChart){
-    setTimeout(()=>{ try{ indexChart.resize(); }catch(e){} }, 0);
-  }
 }
 indexToggle.addEventListener("click", ()=> setIndexOpen(!indexOpen));
 indexRange.addEventListener("change", ()=>{ if(activeIndexFirm) renderIndexForFirm(activeIndexFirm); });
-
-// ✅ normalize (damit Firmen-Namen sicher matchen)
-function normalizeFirmKey(name){
-  return lc(String(name||"")).replace(/\s+/g," ").trim();
-}
-
-// ✅ Öffnen + Rendern (bei Klick/Rechtsklick)
-async function showIndexForFirm(firma){
-  if(!firma) return;
-  setIndexOpen(true);
-  const chart = ensureIndexChart();
-  try{ chart.resize(); }catch(e){}
-  requestAnimationFrame(async ()=>{
-    await renderIndexForFirm(firma);
-    try{ chart.resize(); }catch(e){}
-  });
-}
 
 function parseDateFlex(s){
   s = str(s);
@@ -531,7 +555,7 @@ async function loadIndexHistoryOnce(){
 
   historyByFirm = {};
   for(const row of historyRows){
-    const firm = normalizeFirmKey(row.Firma ?? row.firma ?? row.Name ?? row.name ?? "");
+    const firm = lc(row.Firma ?? row.firma ?? row.Name ?? row.name ?? "");
     const dateRaw = row.Datum ?? row.datum ?? row.Date ?? row.date ?? "";
     const loseRaw = row.LosePreis ?? row.losepreis ?? row.Lose ?? row.lose ?? "";
     const sackRaw = row.SackPreis ?? row.sackpreis ?? row.Sack ?? row.sack ?? "";
@@ -596,7 +620,7 @@ async function renderIndexForFirm(firmaName){
   await loadIndexHistoryOnce();
 
   activeIndexFirm = firmaName;
-  const key = normalizeFirmKey(firmaName);
+  const key = lc(firmaName);
   const rows = historyByFirm[key] || [];
 
   indexFirmTitle.textContent = firmaName ? `Preisindex – ${firmaName}` : "Preisindex";
@@ -619,8 +643,39 @@ async function renderIndexForFirm(firmaName){
   chart.data.datasets[1].data = use.map(x=>isFinite(x.sack)?x.sack:null);
   chart.update();
 
-  indexNote.textContent = "Hover über die Linien: Werte + Differenz werden angezeigt.";
+  indexNote.textContent = "Firma wählen → Pfeil öffnen → Hover zeigt Werte + Differenz.";
 }
+
+/*** ✅ Index-Firmensuche (nur aktualisieren, Panel öffnet NICHT automatisch) ***/
+function refreshIndexFirmSuggestions(){
+  indexFirmList.innerHTML = "";
+  const names = (werke || []).map(w=>str(w.firma)).filter(Boolean);
+  const uniq = [...new Set(names)].sort((a,b)=>a.localeCompare(b,"de"));
+  for(const n of uniq){
+    const opt = document.createElement("option");
+    opt.value = n;
+    indexFirmList.appendChild(opt);
+  }
+}
+
+async function searchIndexFirm(){
+  const q = str(indexFirmSearch.value);
+  if(!q) return;
+
+  // erst exakt, dann "enthält"
+  const exact = (werke || []).find(w=>str(w.firma) === q);
+  let pick = exact ? exact.firma : null;
+
+  if(!pick){
+    const ql = lc(q);
+    const contains = (werke || []).find(w=>lc(w.firma).includes(ql));
+    pick = contains ? contains.firma : q;
+  }
+
+  await renderIndexForFirm(pick);
+}
+indexFirmGo.addEventListener("click", searchIndexFirm);
+indexFirmSearch.addEventListener("keydown", (e)=>{ if(e.key==="Enter"){ e.preventDefault(); searchIndexFirm(); } });
 
 /*** ====== GEO CACHE (3 Quellen) ====== ***/
 let fileGeoCache = {};
@@ -854,8 +909,6 @@ function findIndex(headers, cands){
   const cs=cands.map(c=>lc(c));
   return hs.findIndex(h=>cs.includes(h));
 }
-
-/* ✅ Stand = Spalte D (Index 3) */
 function parseFirmenArray(table){
   if(!table || table.length<2) return [];
   const headers=(table[0]||[]).map(x=>str(x));
@@ -864,10 +917,9 @@ function parseFirmenArray(table){
   let nameIdx = findIndex(headers, ["firma","name","werk"]); if(nameIdx<0) nameIdx = 0;
   let ortIdx  = findIndex(headers, ["ort","stadt","standort","adresse","location"]); if(ortIdx<0) ortIdx = 1;
 
-  const preisIdx = 2;   // Spalte C
-  const standIdx = 3;   // Spalte D
+  const preisIdx = 2;
+  const standIdx = 3;
 
-  // Sackpreis: Header suchen, sonst Fallback Spalte E (Index 4)
   let sackIdx = findIndex(headers, ["sackwarenpreis","sackwarepreis","preis_sack","sackpreis","preis sack"]);
   if(sackIdx<0) sackIdx = 4;
 
@@ -875,7 +927,7 @@ function parseFirmenArray(table){
   let sackTxtIdx = findIndex(headers, ["sackware","sack","bag","bagged"]); if(sackTxtIdx<0) sackTxtIdx = -1;
 
   let bigBagIdx = findIndex(headers, ["big bag","bigbag","big_bag","big-bag"]);
-  if(bigBagIdx<0 && headers.length>=13) bigBagIdx = 12; // Spalte M
+  if(bigBagIdx<0 && headers.length>=13) bigBagIdx = 12;
 
   return rows
     .filter(r=>str(r[nameIdx]) && str(r[ortIdx]))
@@ -1067,23 +1119,14 @@ function addFirmMarker(w){
 
   const cm=L.circleMarker([c.lat,c.lon],{radius:8,color:farbe,fillColor:farbe,fillOpacity:.85})
     .bindTooltip("",{sticky:true})
-    .on("tooltipopen", async ()=>{
+    .on("tooltipopen", ()=>{
       cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code}));
-
-      // ✅ Preisindex für diese Firma aktualisieren (Hover)
-      await showIndexForFirm(w.firma);
+      // ✅ nur Daten vorbereiten – Panel öffnet NICHT automatisch
+      renderIndexForFirm(w.firma);
     })
-    .on("click", async ()=>{
-      // ✅ Preisindex auch bei Klick (damit immer was kommt)
-      await showIndexForFirm(w.firma);
-      pickPoint(w.firma,{lat:c.lat,lon:c.lon});
-    })
-    .on("contextmenu", async (ev)=>{
+    .on("click",()=>pickPoint(w.firma,{lat:c.lat,lon:c.lon}))
+    .on("contextmenu",(ev)=>{
       ev.originalEvent?.preventDefault?.();
-
-      // ✅ Preisindex auch bei Rechtsklick
-      await showIndexForFirm(w.firma);
-
       openFirmPricePopup(w, ev.latlng);
     })
     .on("mousedown", async (ev)=>{
@@ -1319,7 +1362,6 @@ async function runTargetSearch(type, targetPrice){
     .filter(m => m.type==="firma" && map.hasLayer(m.marker))
     .map(m => {
       const isSack = isPellets() && (type === "sack" || type === "bigbag");
-
       const key = `${currentUnit}|${isSack?"sack":"lose"}|${str(m.firma)}`;
       const manual = (isFinite(+manualPrices[key]) && +manualPrices[key]>0) ? +manualPrices[key] : null;
 
@@ -1472,6 +1514,9 @@ async function switchUnit(newUnit){
   const extra = (customFirms[currentUnit] || []);
   werke = baseWerke.concat(extra);
 
+  // ✅ Suggest-Liste für Preisindex aktualisieren
+  refreshIndexFirmSuggestions();
+
   kunden = await loadKundenForUnit(currentUnit);
 
   await buildMap();
@@ -1590,11 +1635,9 @@ searchInput.addEventListener("keydown",async e=>{
   applyUnitUIOnly();
 
   await loadGeoCacheFile();
-
   refreshLegendThresholdUI();
 
-  // Chart erstmal initialisieren (leer) damit es sofort “ready” ist
-  ensureIndexChart();
+  ensureIndexChart(); // Chart leer initialisieren
 
   await switchUnit(unitSelect.value);
 })();
