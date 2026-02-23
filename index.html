@@ -44,7 +44,7 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
 .ctxbox .item:hover{background:#fafafa}
 .ctxbox .small{font-size:12px;opacity:.75}
 .ctxbox .pill{display:inline-block; padding:2px 6px; border-radius:999px; background:#f2f2f2; font-size:12px; margin-left:6px;}
-.ctxbox .topbar{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ctxbox .topbar{display:flex;justify-content:space-between;align-items:center;gap:8px; cursor:move; user-select:none}
 .ctxbox .xbtn{border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;padding:2px 8px; line-height:1.6;}
 .hidden{display:none!important}
 
@@ -413,12 +413,78 @@ function sackAktiv(){
   return isPellets() && (chkSackFireflies.checked || chkSack15kg.checked || chkBigBag.checked);
 }
 
-/*** ✅ liest das manuelle Feld "Entfernung (km)" aus (null = kein Filter) ***/
+/*** ✅ liest das manuelle Feld "Umkreis (km)" aus (null = kein Filter) ***/
 function getCtxMaxKm(){
   if(!ctxEl) return null;
   const el = ctxEl.querySelector("#ctxMaxKm");
   const v = num(el ? el.value : "");
   return (isFinite(v) && v > 0) ? v : null;
+}
+
+function closeCtx(){ if(ctxEl){ctxEl.remove(); ctxEl=null;} ctxCustomer=null; }
+function stopEvt(el){
+  if(!el) return;
+  L.DomEvent.disableClickPropagation(el);
+  L.DomEvent.disableScrollPropagation(el);
+  el.addEventListener("mousedown", e=>e.stopPropagation());
+  el.addEventListener("click", e=>e.stopPropagation());
+  el.addEventListener("dblclick", e=>e.stopPropagation());
+  el.addEventListener("contextmenu", e=>e.stopPropagation());
+  el.addEventListener("wheel", e=>e.stopPropagation(), {passive:true});
+  el.addEventListener("touchstart", e=>e.stopPropagation(), {passive:true});
+}
+
+/*** ✅ Kundenbox draggable (nur schließen über X) ***/
+function makeCtxDraggable(ctxEl){
+  const cont = map.getContainer();
+  const bar = ctxEl.querySelector(".topbar");
+  if(!bar) return;
+
+  let dragging = false;
+  let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+  bar.addEventListener("mousedown", (e)=>{
+    const t = e.target;
+    if(t && (t.closest?.(".xbtn") || t.tagName==="INPUT" || t.tagName==="SELECT" || t.tagName==="BUTTON")) return;
+
+    dragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    startLeft = parseFloat(ctxEl.style.left || "0");
+    startTop  = parseFloat(ctxEl.style.top  || "0");
+
+    // Map-drag während Ziehen aus
+    map.dragging.disable();
+
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (e)=>{
+    if(!dragging) return;
+
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    let left = startLeft + dx;
+    let top  = startTop + dy;
+
+    const pad = 10;
+    const maxLeft = cont.clientWidth  - ctxEl.offsetWidth  - pad;
+    const maxTop  = cont.clientHeight - ctxEl.offsetHeight - pad;
+
+    left = Math.min(Math.max(pad, left), Math.max(pad, maxLeft));
+    top  = Math.min(Math.max(pad, top ), Math.max(pad, maxTop ));
+
+    ctxEl.style.left = left + "px";
+    ctxEl.style.top  = top  + "px";
+  });
+
+  window.addEventListener("mouseup", ()=>{
+    if(dragging){
+      dragging = false;
+      map.dragging.enable();
+    }
+  });
 }
 
 /*** ====== FARBSCHWELLEN (editierbar + gespeichert) ====== ***/
@@ -680,9 +746,7 @@ function ensureIndexChart(){
       },
 
       scales: {
-        x: {
-          ticks: { maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 8 }
-        },
+        x: { ticks: { maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 8 } },
         y: { ticks: { callback: (v)=> `${Math.round(+v)} €` } }
       }
     },
@@ -697,16 +761,12 @@ async function renderIndexForFirm(firmaName, opts={}){
   await loadIndexHistoryOnce();
 
   activeIndexFirm = str(firmaName);
-
-  // ✅ oben NICHT mehr anzeigen
   indexFirmTitle.textContent = "";
 
   const key = normName(firmaName);
   const rows = historyByFirm[key] || [];
 
   const chart = ensureIndexChart();
-
-  // ✅ Überschrift unten im Chart
   chart.options.bottomTitleText = firmaName ? `Preisindex – ${firmaName}` : "";
 
   if(!rows.length){
@@ -726,7 +786,6 @@ async function renderIndexForFirm(firmaName, opts={}){
   chart.update();
 }
 
-/* ✅ Index-Suche: sucht erst in werke, dann in history keys */
 function findBestFirmMatch(query){
   const q = normName(query);
   if(!q) return null;
@@ -824,23 +883,8 @@ let kundenPellets=null, kundenStreusalz=null, kunden=[];
 let alleMarker=[], selectedPoints=[], routeLine=null, searchMarker=null;
 let ctxEl=null, ctxCustomer=null;
 
-function closeCtx(){ if(ctxEl){ctxEl.remove(); ctxEl=null;} ctxCustomer=null; }
-function stopEvt(el){
-  if(!el) return;
-  L.DomEvent.disableClickPropagation(el);
-  L.DomEvent.disableScrollPropagation(el);
-  el.addEventListener("mousedown", e=>e.stopPropagation());
-  el.addEventListener("click", e=>e.stopPropagation());
-  el.addEventListener("dblclick", e=>e.stopPropagation());
-  el.addEventListener("contextmenu", e=>e.stopPropagation());
-  el.addEventListener("wheel", e=>e.stopPropagation(), {passive:true});
-  el.addEventListener("touchstart", e=>e.stopPropagation(), {passive:true});
-}
-
 /*** =========================================================
  *** ✅ FAST ROUTE ENGINE (Klick = sofort + Route nachladen)
- *** - Luftlinie sofort anzeigen
- *** - OSRM Route wird nachgeladen (abbrechbar + Cache)
  *** ========================================================= */
 let routeAbort = null;
 const ROUTE_MEM = new Map();
@@ -893,7 +937,6 @@ async function getRouteCached(a,b){
   return out;
 }
 
-/*** ===== ROUTE / PRICE ===== */
 function calcDeliveredPrice(distKm, basePrice){
   const preisProKm = distKm < 250 ? 2.15 : 1.85;
   const berechnung = (distKm/24) * preisProKm;
@@ -907,8 +950,6 @@ function findFirmInLabels(aLabel,bLabel){
 function getBasePriceForFirm(firmObj, ctxType=null){
   if(!firmObj) return 0;
 
-  // Manuell hat immer Vorrang
-  // Für Zielpreis-Suche kann ctxType explizit Sack/Lose sein
   if(ctxType){
     const isSack = isPellets() && (ctxType==="sack" || ctxType==="bigbag");
     const key = `${currentUnit}|${isSack?"sack":"lose"}|${str(firmObj.firma)}`;
@@ -929,7 +970,6 @@ let activeRouteToken = 0;
 async function showRouteByCoordsFast(aLabel,aCoord,bLabel,bCoord, ctxType=null){
   const myToken = ++activeRouteToken;
 
-  // 1) sofort Luftlinie zeichnen + Popup "lädt…"
   const airKm = luftlinieKm(aCoord,bCoord);
   const coords0=[[aCoord.lat,aCoord.lon],[bCoord.lat,bCoord.lon]];
   if(routeLine) map.removeLayer(routeLine);
@@ -945,18 +985,16 @@ async function showRouteByCoordsFast(aLabel,aCoord,bLabel,bCoord, ctxType=null){
     : ((isPellets() && (ctxType==="sack" || ctxType==="bigbag" || sackAktiv())) ? "Sackware-Preis" : "Werkspreis");
 
   const mid0=coords0[0];
-  const p0 = L.popup().setLatLng(mid0).setContent(`
+  L.popup().setLatLng(mid0).setContent(`
     <b>Route:</b> ${aLabel} ↔ ${bLabel}<br>
     <b>Entfernung:</b> ${airKm.toFixed(1)} km (Luftlinie)<br>
     <b>${baseLabel0}:</b> ${(base||0).toFixed(2)} €<br>
     <b>Marge:</b> ${margeTxt0}<br>
     <b>Gesamtkosten:</b> <span style="color:green;font-size:1.1em">${calc0.total.toFixed(2)} €</span><br>
     <div class="small" style="margin-top:6px">Route wird geladen…</div>
-  `);
-  p0.openOn(map);
+  `).openOn(map);
 
   try{
-    // 2) echte Route nachladen (abbrechbar + Cache)
     const r = await getRouteCached(aCoord,bCoord);
     if(myToken !== activeRouteToken) return;
 
@@ -979,12 +1017,10 @@ async function showRouteByCoordsFast(aLabel,aCoord,bLabel,bCoord, ctxType=null){
     try{ map.fitBounds(routeLine.getBounds(),{padding:[40,40]}); }catch(e){}
   }catch(err){
     if(err?.name==="AbortError") return;
-    // fallback bleibt Luftlinie
   }
 }
 function showRoute(a,b){ return showRouteByCoordsFast(a.label, a.coord, b.label, b.coord); }
 
-/*** ===== PICK / CLEAR ===== */
 function pickPoint(label,coord){
   selectedPoints.push({label,coord});
   if(selectedPoints.length===2){
@@ -1452,8 +1488,8 @@ async function buildMap(){
   updateLayers();
 }
 
-/*** ===== CONTEXT MENU (Zielpreis + Entfernung-Feld) ===== */
-let ctxLastMatches = []; // ✅ merkt Treffer, damit Klick im Ergebnis Route lädt
+/*** ===== CONTEXT MENU (Zielpreis + Umkreis) ===== */
+let ctxLastMatches = [];
 
 function openCustomerMenu(kunde, coord, mouseEvent){
   closeCtx();
@@ -1492,7 +1528,6 @@ function openCustomerMenu(kunde, coord, mouseEvent){
 
     ${typeRow}
 
-    <!-- ✅ Entfernung -->
     <div class="row" style="margin-top:10px">
       <input id="ctxMaxKm" type="number" step="1" placeholder="Umkreis (km) – z.B. 200">
     </div>
@@ -1506,13 +1541,15 @@ function openCustomerMenu(kunde, coord, mouseEvent){
 
   cont.appendChild(ctxEl);
   stopEvt(ctxEl);
+  makeCtxDraggable(ctxEl); // ✅ verschiebbar
 
+  // ✅ nur X schließt
   ctxEl.querySelector("#ctxClose").addEventListener("click", closeCtx);
 
   const resBox = ctxEl.querySelector("#ctxResults");
   resBox.innerHTML = `<div class="small">Zielpreis eingeben → Enter. (Optional: Umkreis (km) setzen)</div>`;
 
-  // ✅ Klick auf Treffer → Route (Straße) laden
+  // ✅ Klick auf Treffer → Route laden
   resBox.addEventListener("click",(e)=>{
     const item = e.target.closest?.(".item");
     if(!item) return;
@@ -1520,7 +1557,6 @@ function openCustomerMenu(kunde, coord, mouseEvent){
     const hit = ctxLastMatches[idx];
     if(!hit || !ctxCustomer) return;
 
-    // Route Kunde -> Firma (mit echtem OSRM nachladen)
     showRouteByCoordsFast(
       ctxCustomer.name,
       ctxCustomer.coord,
@@ -1541,17 +1577,14 @@ function openCustomerMenu(kunde, coord, mouseEvent){
   });
 }
 
-/*** ===== Zielpreis Suche (✅ jetzt: ALLE im Umkreis, super schnell) =====
- *  - Filtert & rechnet komplett mit Luftlinie => sofort & zeigt wirklich ALLE
- *  - Beim Klick auf einen Treffer: echte Straßenroute + echte km werden geladen
- */
+/*** ===== Zielpreis Suche (ALLE im Umkreis, super schnell über Luftlinie) ===== */
 async function runTargetSearch(type, targetPrice){
   if(!ctxEl || !ctxCustomer) return;
   const resBox = ctxEl.querySelector("#ctxResults");
   resBox.innerHTML = `<div class="small">Suche…</div>`;
   ctxLastMatches = [];
 
-  const maxKm = getCtxMaxKm(); // Umkreis
+  const maxKm = getCtxMaxKm();
 
   let firmsVisible = alleMarker
     .filter(m => m.type==="firma" && map.hasLayer(m.marker))
@@ -1578,15 +1611,12 @@ async function runTargetSearch(type, targetPrice){
 
   const c = ctxCustomer.coord;
 
-  // ✅ 100% schnell: alles mit Luftlinie rechnen + Umkreis-Filter
   const matches = [];
   for(const f of firmsVisible){
     const dist = luftlinieKm({lat:c.lat,lon:c.lon},{lat:f._coord.lat,lon:f._coord.lon});
-
     if(maxKm && dist > maxKm) continue;
 
     const {total} = calcDeliveredPrice(dist, f.base);
-
     if(total <= targetPrice){
       matches.push({ f, distKm: dist, total, ctxType:type });
     }
@@ -1614,7 +1644,7 @@ async function runTargetSearch(type, targetPrice){
     <div class="small" style="margin-bottom:6px">
       Treffer: <b>${matches.length}</b>
       ${maxKm ? ` • Umkreis: <b>${maxKm.toFixed(0)} km</b>` : ""}
-      <br>Entfernung hier = <b>Luftlinie</b> (für Speed). Klick auf Firma → <b>Straßenroute</b> wird geladen.
+      <br>Entfernung hier = <b>Luftlinie</b> (Speed). Klick → <b>Straßenroute</b>.
     </div>
   ` + matches.slice(0,200).map((m,i)=>`
     <div class="item" data-i="${i}">
@@ -1653,7 +1683,7 @@ function updateLayers(){
 
     if(m.type==="kunde"){ if(showPelletK) map.addLayer(m.marker); continue; }
     if(m.type==="sackkunde"){ if(showPelletSK) map.addLayer(m.marker); continue; }
-    if(m.type==="sonstige"){ if(showPelletS) map.addLayer(m.marker); continue; }
+    if(m.type==="sonstige"){ ifshowPelletS && map.addLayer(m.marker); continue; }
     if(m.type==="streukunde"){ if(showStreuK) map.addLayer(m.marker); continue; }
 
     if(useSack){
@@ -1706,7 +1736,7 @@ function applyUnitUIOnly(){
 async function switchUnit(newUnit){
   currentUnit = newUnit;
   applyUnitUIOnly();
-  closeCtx();
+  // Kundenbox bleibt (nur X schließt) -> wir schließen sie NICHT automatisch
   clearRoute();
   closeAddFirmModal();
 
@@ -1738,19 +1768,11 @@ document.addEventListener("keydown", (e)=>{
   if(e.key === "Escape"){
     closeAddFirmModal();
     clearRoute();
-    closeCtx();
+    // closeCtx(); // ✅ bleibt offen, nur X
     setIndexLock(false, null);
     if(activeIndexFirm) renderIndexForFirm(activeIndexFirm, {keepLock:true});
   }
 });
-
-document.addEventListener("mousedown",(e)=>{
-  if(!ctxEl) return;
-  if(ctxEl.contains(e.target)) return;
-  closeCtx();
-});
-map.on("movestart", closeCtx);
-map.on("zoomstart", closeCtx);
 
 function clampThresholdsFromInputs(){
   let g = num(thGreen.value);
@@ -1799,7 +1821,7 @@ searchInput.addEventListener("keydown",async e=>{
   if(e.key!=="Enter") return;
   const raw=e.target.value.trim(); if(!raw) return;
 
-  closeCtx();
+  // Kundenbox bleibt absichtlich offen (nur X)
   clearRoute();
   closeAddFirmModal();
 
