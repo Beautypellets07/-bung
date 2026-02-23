@@ -267,7 +267,8 @@ html,body{height:100%;margin:0}#map{height:100%;width:100%}
   <div class="indexPanel" id="indexPanel">
     <div class="indexHead">
       <div class="indexTitleWrap">
-        <div class="indexTitle" id="indexFirmTitle">Preisindex</div>
+        <!-- oben links NICHT mehr anzeigen -->
+        <div class="indexTitle" id="indexFirmTitle"></div>
         <button class="indexLockBtn" id="indexLockBtn" type="button" title="Index entsperren">🔓</button>
       </div>
       <div class="indexControls">
@@ -620,7 +621,7 @@ const bottomTitlePlugin = {
     if(!chartArea) return;
 
     const x = (chartArea.left + chartArea.right) / 2;
-    const y = chartArea.bottom + 45; // unterhalb der Achse
+    const y = chartArea.bottom + 45;
 
     ctx.save();
     ctx.font = "700 14px system-ui, Arial";
@@ -650,12 +651,7 @@ function ensureIndexChart(){
       maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
 
-      /* ✅ Platz schaffen für die Überschrift unten */
-      layout: {
-        padding: { bottom: 65 }
-      },
-
-      /* ✅ wird in renderIndexForFirm gesetzt */
+      layout: { padding: { bottom: 65 } },
       bottomTitleText: "",
 
       plugins: {
@@ -675,21 +671,22 @@ function ensureIndexChart(){
           }
         }
       },
-     scales: {
-  x: {
-    ticks: {
-      maxRotation: 0,
-      minRotation: 0,
-      autoSkip: true,
-      maxTicksLimit: 8
-    }
-  },
-  y: { 
-    ticks: { 
-      callback: (v)=> `${Math.round(+v)} €` 
-    } 
-  }
-},
+
+      // ✅ X-Achse immer gerade (keine schrägen Labels)
+      scales: {
+        x: {
+          ticks: {
+            maxRotation: 0,
+            minRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 8
+          }
+        },
+        y: { ticks: { callback: (v)=> `${Math.round(+v)} €` } }
+      }
+    },
+
+    // ✅ Plugin MUSS hier stehen (nicht in options!)
     plugins: [bottomTitlePlugin]
   });
 
@@ -701,7 +698,7 @@ async function renderIndexForFirm(firmaName, opts={}){
 
   activeIndexFirm = str(firmaName);
 
-  const lockTag = indexLocked = "";
+  // ✅ oben NICHT mehr anzeigen
   indexFirmTitle.textContent = "";
 
   const key = normName(firmaName);
@@ -709,7 +706,7 @@ async function renderIndexForFirm(firmaName, opts={}){
 
   const chart = ensureIndexChart();
 
-  /* ✅ Überschrift unten mittig im Chart */
+  // ✅ Überschrift unten im Chart
   chart.options.bottomTitleText = firmaName ? `Preisindex – ${firmaName}` : "";
 
   if(!rows.length){
@@ -734,7 +731,6 @@ function findBestFirmMatch(query){
   const q = normName(query);
   if(!q) return null;
 
-  // 1) in werke (echte Firmennamen)
   const list = (werke || []).map(w => str(w.firma)).filter(Boolean);
 
   let exact = list.find(n => normName(n) === q);
@@ -746,7 +742,6 @@ function findBestFirmMatch(query){
   let incl = list.find(n => normName(n).includes(q));
   if(incl) return incl;
 
-  // 2) wenn nix: versuch in history keys (da sind evtl. andere Namen)
   const keys = Object.keys(historyByFirm||{});
   let hx = keys.find(k => k === q) || keys.find(k=>k.startsWith(q)) || keys.find(k=>k.includes(q));
   if(hx) return hx;
@@ -766,9 +761,7 @@ async function doIndexSearch(){
     return;
   }
 
-  // ✅ sofort lock an (damit Hover NICHT überschreibt)
   setIndexLock(true, match);
-
   await renderIndexForFirm(match, {keepLock:true});
   setIndexOpen(true);
 }
@@ -1221,9 +1214,7 @@ function addFirmMarker(w){
     .on("tooltipopen", async ()=>{
       cm.getTooltip().setContent(tooltipFirma({...w,country_code:c.country_code}));
 
-      // ✅ wenn gelockt → Hover darf NICHT ändern
       if(indexLocked) return;
-
       await renderIndexForFirm(w.firma, {keepLock:true});
     })
     .on("click",()=>pickPoint(w.firma,{lat:c.lat,lon:c.lon}))
@@ -1611,7 +1602,6 @@ async function switchUnit(newUnit){
   clearRoute();
   closeAddFirmModal();
 
-  // ✅ beim Unit-Wechsel: Index Lock aus (sonst verwirrend)
   setIndexLock(false, null);
 
   const baseWerke = await loadWerkeForUnit(currentUnit);
@@ -1749,7 +1739,6 @@ searchInput.addEventListener("keydown",async e=>{
   refreshLegendThresholdUI();
 
   ensureIndexChart();
-
   setIndexLock(false, null);
 
   await switchUnit(unitSelect.value);
